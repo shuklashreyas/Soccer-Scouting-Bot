@@ -1,14 +1,21 @@
 import re
 
-def extract_entities(query, players, leagues, stats):
-    entities = {'player': [], 'league': [], 'stat': []}
-    for p in players:
-        if p.lower() in query.lower():
-            entities['player'].append(p)
-    for l in leagues:
-        if l.lower() in query.lower():
-            entities['league'].append(l)
-    for s in stats:
-        if re.search(rf"\b{s}\b", query.lower()):
-            entities['stat'].append(s)
-    return entities
+# Example lists — can be loaded from your scraped data
+players = ["Haaland", "Mbappé", "Pedri", "Messi", "Bellingham", "Bruno Fernandes"]
+stats = ["goals", "assists", "xG", "xA"]
+leagues = ["Premier League", "La Liga", "Serie A", "Bundesliga"]
+
+def extract_entities(query):
+    found_players = [p for p in players if p.lower() in query.lower()]
+    found_stats = [s for s in stats if s.lower() in query.lower()]
+    found_leagues = [l for l in leagues if l.lower() in query.lower()]
+
+    return {
+        "players": found_players,
+        "stats": found_stats,
+        "leagues": found_leagues
+    }
+
+# Example usage
+example = "Compare Haaland and Mbappé in La Liga"
+print(extract_entities(example))
