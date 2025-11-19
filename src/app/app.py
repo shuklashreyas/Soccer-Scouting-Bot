@@ -1,169 +1,211 @@
 import streamlit as st
 import pandas as pd
-from typing import List, Dict
+import pickle
+import sys
+from pathlib import Path
+
+# ======================================
+# FIX MODULE PATHS
+# ======================================
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+# Your modules
+from src.nlp.intent_classifier import predict_intent
+from src.nlp.entity_extraction import extract_entities
+from src.modeling.similarity import find_similar_players
 
 
+# ======================================
+# LOAD DATA
+# ======================================
+@st.cache_data
+def load_data():
+    df_path = "data/processed/all_leagues_clean.csv"
+
+    df = pd.read_csv(df_path)
+
+    players = df["Player"].dropna().unique().tolist()
+    leagues = ["premier league", "la liga", "bundesliga", "serie a", "ligue 1"]
+
+    # These stats names are used only for entity extraction
+    stats = ["goals", "assists", "xg", "xa", "progressive passes", "ppa", "g+a"]
+
+    return df, players, leagues, stats
+
+
+df, players_list, league_list, stat_list = load_data()
+
+
+# ======================================
+# LOAD SIMILARITY MODEL (OPTIONAL)
+# Your new wrapper doesn't need scaler/knn but we keep it for compatibility
+# ======================================
+try:
+    with open("data/models/similarity_model.pkl", "rb") as f:
+        scaler, knn = pickle.load(f)
+except:
+    scaler = knn = None
+    print("⚠️ Warning: similarity_model.pkl not found — using pure wrapper model.")
+
+
+# ======================================
+# STREAMLIT UI
+# ======================================
 st.set_page_config(page_title="Soccer Scouting Chatbot", layout="wide")
 
-
-CSS = """
-<style>
-body { background: linear-gradient(180deg, #0f1723 0%, #071026 100%); }
-.chat-container { max-width: 900px; margin: 0 auto; }
-.msg { padding: 12px 16px; border-radius: 12px; margin: 8px 0; display: inline-block; }
-.msg.user { background: #dbeafe; color: #012a4a; float: right; }
-.msg.bot { background: #d1fae5; color: #064e3b; float: left; }
-.clear { clear: both; }
-.player-card { background: linear-gradient(90deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02)); padding: 12px; border-radius: 10px; }
-.muted { color: #9aa4b2; font-size: 0.9em }
-</style>
-"""
-
-st.markdown(CSS, unsafe_allow_html=True)
-
-st.title("⚽ Soccer Scouting Chatbot — UI Prototype")
-st.markdown("""
-Small interactive UI for scouting flows. This is a front-end only prototype — buttons and inputs show placeholders and sample outputs.
-""")
+st.title("⚽ Soccer Scouting Chatbot — Working Demo")
+st.markdown("Ask about **players, comparisons, or find similar profiles.**")
 
 
-def sample_players() -> List[Dict]:
-	return [
-		{"name": "Joao Cancelo", "pos": "RB/LB", "team": "Top Club", "img": "https://via.placeholder.com/120"},
-		{"name": "Alphonso Davies", "pos": "LB", "team": "Top Club", "img": "https://via.placeholder.com/120"},
-		{"name": "Trent Alexander-Arnold", "pos": "RB", "team": "Top Club", "img": "https://via.placeholder.com/120"},
-		{"name": "Kieran Tierney", "pos": "LB", "team": "Mid Club", "img": "https://via.placeholder.com/120"}
-	]
-
-
+# Initialize chat state
 if "messages" not in st.session_state:
-	st.session_state.messages = [
-		{"sender": "bot", "text": "Hi — ask me about players, comparisons, or find similar profiles."}
-	]
+    st.session_state.messages = [
+        {"sender": "bot", "text": "Hi — ask about any player, comparison, or similarity search!"}
+    ]
 
 
-def render_message(m: Dict):
-	sender = m.get("sender", "bot")
-	text = m.get("text", "")
-	cls = "bot" if sender == "bot" else "user"
-	st.markdown(f"<div class='msg {cls}'>{text}</div><div class='clear'></div>", unsafe_allow_html=True)
+# Display chat message nicely
+def render_message(sender, text):
+    # ChatGPT-like high-contrast bubbles so text is always readable
+    if sender == "bot":
+        bubble_bg = "#0f766e"     # teal (bot)
+        text_color = "#ffffff"
+        align = "left"
+    else:
+        bubble_bg = "#1f2937"     # dark slate (user)
+        text_color = "#ffffff"
+        align = "right"
+
+    st.markdown(
+        f"""
+        <div style='text-align:{align}; margin:6px;'>
+            <div style='display:inline-block; background:{bubble_bg}; color:{text_color}; padding:12px 16px; border-radius:12px; max-width:75%; font-size:14px; line-height:1.4; white-space:pre-wrap;'>
+                {text}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
-with st.sidebar:
-	st.header("Navigation")
-	page = st.radio("Go to", ["Home", "Player Profile", "Compare Players", "Find Similar", "League Fit"]) 
-	st.markdown("---")
-	st.markdown("Authors: Shreyas, Ansh, Komdean, Ethan, Youssof")
-	st.markdown("""
-	<div class='muted'>This UI is a prototype and does not call any backend models. It's ready for wiring.</div>
-	""", unsafe_allow_html=True)
+# ===========================
+# SHOW CHAT HISTORY
+# ===========================
+for m in st.session_state.messages:
+    render_message(m["sender"], m["text"])
 
 
-def add_user_message(text: str):
-	st.session_state.messages.append({"sender": "user", "text": text})
-	st.session_state.messages.append({"sender": "bot", "text": "(placeholder response) — this would show a concise scouting rationale and stats visualizations."})
+# ===========================
+# INPUT FORM
+# ===========================
+with st.form("chat_form", clear_on_submit=True):
+    user_query = st.text_input("Type your question here...")
+    submitted = st.form_submit_button("Send")
 
+    if submitted and user_query.strip():
 
-## Home
-if page == "Home":
-	st.subheader("Chat — prototype")
-	chat_col, viz_col = st.columns((2, 1))
+        st.session_state.messages.append({"sender": "user", "text": user_query})
 
-	with chat_col:
-		for m in st.session_state.messages:
-			render_message(m)
+        # ===== STEP 1: Intent Recognition =====
+        intent = predict_intent(user_query)
 
-		with st.form(key="chat_form", clear_on_submit=True):
-			user_input = st.text_input("Ask me about a player or request a flow (e.g. 'Compare X vs Y')")
-			submit = st.form_submit_button("Send")
-			if submit and user_input:
-				add_user_message(user_input)
+        # ===== STEP 2: Entity Extraction =====
+        entities = extract_entities(
+            user_query,
+            players_list,
+            league_list,
+            stat_list
+        )
 
-		st.markdown("\n")
+        # ===== GENERATE RESPONSE =====
+        response = ""
 
-	with viz_col:
-		st.markdown("### Quick Actions")
-		if st.button("Show sample Player Card"):
-			st.session_state.messages.append({"sender": "bot", "text": "Showing a sample player card (open Player Profile page)."})
-		st.button("Export shortlist (disabled)", disabled=True)
+        # ---------------------------------------------------
+        # PLAYER STATS
+        # ---------------------------------------------------
+        if intent == "player_stats":
+            if len(entities["players"]) == 0:
+                response = "I couldn’t detect which player you mean."
+            else:
+                player = entities["players"][0]
+                row = df[df["Player"].str.contains(player, case=False, na=False)]
+                if row.empty:
+                    response = f"Couldn't find stats for {player}."
+                else:
+                    r = row.iloc[0]
+                    response = (
+                        f"### {player} — Key Stats\n"
+                        f"- Goals: {r.get('Performance_Gls', 'N/A')}\n"
+                        f"- Assists: {r.get('Performance_Ast', 'N/A')}\n"
+                        f"- xG: {r.get('Expected_xG', 'N/A')}\n"
+                        f"- Progressive Passes: {r.get('Progression_PrgP', 'N/A')}"
+                    )
 
+        # ---------------------------------------------------
+        # COMPARE PLAYERS
+        # ---------------------------------------------------
+        elif intent == "compare_players":
+            if len(entities["players"]) < 2:
+                response = "Provide two players to compare."
+            else:
+                p1, p2 = entities["players"][:2]
 
-## Player Profile
-elif page == "Player Profile":
-	st.subheader("Player Profile — sample output")
-	players = sample_players()
-	names = [p["name"] for p in players]
-	sel = st.selectbox("Select player", names)
-	p = next((x for x in players if x["name"] == sel), players[0])
+                r1 = df[df["Player"].str.contains(p1, case=False, na=False)]
+                r2 = df[df["Player"].str.contains(p2, case=False, na=False)]
 
-	left, right = st.columns((1, 2))
-	with left:
-		st.image(p["img"], width=140)
-		st.markdown(f"### {p['name']}")
-		st.markdown(f"**Position:** {p['pos']}")
-		st.markdown(f"**Team:** {p['team']}")
-		st.markdown("\n")
-		st.button("Add to shortlist (no-op)")
+                if r1.empty or r2.empty:
+                    response = "One of the players couldn't be found."
+                else:
+                    a, b = r1.iloc[0], r2.iloc[0]
+                    response = (
+                        f"### 🔵 {p1} vs 🔴 {p2}\n"
+                        f"**Goals:** {a['Performance_Gls']} vs {b['Performance_Gls']}\n"
+                        f"**Assists:** {a['Performance_Ast']} vs {b['Performance_Ast']}\n"
+                        f"**xG:** {a['Expected_xG']} vs {b['Expected_xG']}\n"
+                        f"**Progressive Passes:** {a['Progression_PrgP']} vs {b['Progression_PrgP']}"
+                    )
 
-	with right:
-		st.markdown("**Concise scouting summary**")
-		st.info("Pacey fullback with strong progressive passing. Aerials and long duels below average.")
-		st.markdown("**Strengths**")
-		st.write("- Progressive carries\n- Passes into final third\n- Versatile wide positioning")
-		st.markdown("**Key metrics (sample)**")
-		df = pd.DataFrame({
-			"Metric": ["Progressive Passes", "Progressive Carries", "Aerials Won %", "Shot-creating Actions"],
-			"Value": [12.4, 7.5, 38.0, 2.1]
-		})
-		st.table(df)
+        # ---------------------------------------------------
+        # SIMILAR PLAYERS
+        # ---------------------------------------------------
+        elif intent == "similar_players":
+            if len(entities["players"]) == 0:
+                response = "Tell me which player you want similar profiles for."
+            else:
+                target = entities["players"][0]
 
+                try:
+                    sims = find_similar_players(target, df)
+                    response = f"### Players similar to **{target}**:\n"
+                    for s in sims:
+                        response += f"- {s}\n"
+                except Exception as e:
+                    response = f"Could not compute similarity: {e}"
 
-## Compare Players
-elif page == "Compare Players":
-	st.subheader("Compare two players (sample)")
-	players = sample_players()
-	names = [p["name"] for p in players]
-	a, b = st.columns(2)
-	with a:
-		p1 = st.selectbox("Player A", names, index=0)
-	with b:
-		p2 = st.selectbox("Player B", names, index=1)
+        # ---------------------------------------------------
+        # LEAGUE FIT
+        # ---------------------------------------------------
+        elif intent == "league_fit":
+            player = entities["players"][0] if entities["players"] else None
+            league = entities["league"]
 
-	if p1 == p2:
-		st.warning("Pick two different players to compare.")
-	else:
-		left, right = st.columns(2)
-		with left:
-			st.markdown(f"### {p1}")
-			st.markdown("**Profile highlights**")
-			st.write("- Progressive passing\n- Good crossing\n- Creative outlet")
-		with right:
-			st.markdown(f"### {p2}")
-			st.markdown("**Profile highlights**")
-			st.write("- Rapid recoveries\n- Defensive positioning\n- Less creative in final third")
+            if not player or not league:
+                response = "Please specify both a player and a league."
+            else:
+                response = (
+                    f"### {player} → {league.title()}\n"
+                    f"This is a placeholder league-fit heuristic. "
+                    f"League fit modeling launching in Milestone 3."
+                )
 
+        # ---------------------------------------------------
+        # UNKNOWN INTENT
+        # ---------------------------------------------------
+        else:
+            response = "I'm not sure what you mean — try asking about stats, comparisons, or similar players."
 
-## Find Similar
-elif page == "Find Similar":
-	st.subheader("Find similar players")
-	players = [p["name"] for p in sample_players()]
-	sel = st.selectbox("Player to find similars for", players)
-	if st.button("Show top-5 similar"):
-		st.markdown("**Top-5 similar players (sample)**")
-		for i, s in enumerate(players[::-1], 1):
-			st.markdown(f"{i}. **{s}** — similar in progressive passing and width use.")
-
-
-## League Fit
-elif page == "League Fit":
-	st.subheader("League-fit preview (heuristic)")
-	league = st.selectbox("Choose league", ["Premier League", "LaLiga", "Bundesliga", "MLS"])
-	uncertainty = st.slider("Uncertainty (display only)", 0.0, 1.0, 0.35)
-	st.markdown(f"**Heuristic fit for** {league}")
-	st.progress(int((1 - uncertainty) * 100))
-	st.markdown("Rationale: This player profile emphasizes progressive passing and high-possession involvement, which suits ball-dominant leagues.")
-
-
-## Footer
-st.markdown("---")
-st.markdown("Prototype UI only — no models invoked. Run `streamlit run src/app.py` to view locally.")
+        # Add bot message
+        st.session_state.messages.append({"sender": "bot", "text": response})
+        st.rerun()
