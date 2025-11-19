@@ -44,10 +44,28 @@ df, players_list, league_list, stat_list = load_data()
 # ======================================
 try:
     with open("data/models/similarity_model.pkl", "rb") as f:
-        scaler, knn = pickle.load(f)
-except:
+        obj = pickle.load(f)
+
+    # Support both older (scaler, knn) and newer (scaler, knn, feature_cols) formats
+    if isinstance(obj, tuple):
+        if len(obj) == 2:
+            scaler, knn = obj
+            feature_cols = None
+        elif len(obj) == 3:
+            scaler, knn, feature_cols = obj
+        else:
+            # Unexpected tuple shape
+            scaler = knn = None
+            feature_cols = None
+    else:
+        scaler = knn = None
+        feature_cols = None
+
+    similarity_model_missing = scaler is None or knn is None
+except Exception:
     scaler = knn = None
-    print("⚠️ Warning: similarity_model.pkl not found — using pure wrapper model.")
+    feature_cols = None
+    similarity_model_missing = True
 
 
 # ======================================
@@ -57,6 +75,18 @@ st.set_page_config(page_title="Soccer Scouting Chatbot", layout="wide")
 
 st.title("⚽ Soccer Scouting Chatbot — Working Demo")
 st.markdown("Ask about **players, comparisons, or find similar profiles.**")
+
+# If similarity model missing, show a single in-app warning (avoid spamming console)
+try:
+    if similarity_model_missing:
+        if not st.session_state.get("_similarity_model_missing_shown"):
+            st.session_state["_similarity_model_missing_shown"] = True
+            st.warning(
+                "Similarity model not found — run `python src/modeling/train_similarity_model.py` to create `data/models/similarity_model.pkl`."
+            )
+except Exception:
+    # If session_state isn't available yet (rare), skip the UI warning silently
+    pass
 
 
 # Initialize chat state
