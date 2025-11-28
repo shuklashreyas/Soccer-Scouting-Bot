@@ -21,7 +21,7 @@ from src.modeling.similarity import find_similar_players
 from src.player.lookup import lookup_player
 from src.player.extract import extract_player_profile
 from src.player.roles import classify_role
-from src.player.insights import generate_strengths_weaknesses
+from src.player.insights import generate_strengths_weaknesses, ordinal
 
 
 # ======================================
@@ -205,29 +205,56 @@ with st.form("chat_form", clear_on_submit=True):
                             role_label, role_reasons, _ = classify_role(profile, df)
                             strengths, weaknesses, pct_map = generate_strengths_weaknesses(profile, df)
 
-                            # Textual summary (key stats + role + insights)
-                            response = (
-                                f"### {chosen} — Key Stats & Profile\n"
-                                f"**Position:** {profile.pos}  \n"
-                                f"**Squad:** {profile.squad}  \n"
-                                f"**Role:** {role_label}  \n"
-                                f"- Goals: {profile.stats['shooting'].get('goals', 'N/A')}  \n"
-                                f"- Assists: {profile.stats['assisting'].get('assists', 'N/A')}  \n"
-                                f"- xG: {profile.stats['shooting'].get('xg', 'N/A')}  \n"
-                                f"- Progressive Passes: {profile.stats['progression'].get('prg_passes', 'N/A')}\n\n"
+                            # Build HTML summary (compact, no empty sections)
+                            def _fmt_num(v, ndigits=1):
+                                try:
+                                    return f"{float(v):.{ndigits}f}"
+                                except Exception:
+                                    return v if v is not None else "N/A"
+
+                            goals = profile.stats.get('shooting', {}).get('goals', 'N/A')
+                            assists = profile.stats.get('assisting', {}).get('assists', 'N/A')
+                            xg = profile.stats.get('shooting', {}).get('xg', None)
+                            prg = profile.stats.get('progression', {}).get('prg_passes', 'N/A')
+
+                            response_html = []
+                            response_html.append(f"<div style='font-size:14px; line-height:1.4;'>")
+                            response_html.append(f"<strong style='font-size:16px;'>{chosen} — Key Stats & Profile</strong><br>")
+                            response_html.append(f"<strong>Position:</strong> {profile.pos}  <br>")
+                            response_html.append(f"<strong>Squad:</strong> {profile.squad}  <br>")
+                            response_html.append(f"<strong>Role:</strong> {role_label}  <br>")
+                            response_html.append(
+                                "<div style='display:flex; gap:12px; flex-wrap:wrap; margin-top:6px;'>"
+                                + f"<div style='min-width:84px;'><strong>Goals:</strong> {goals}</div>"
+                                + f"<div style='min-width:100px;'><strong>Assists:</strong> {assists}</div>"
+                                + f"<div style='min-width:84px;'><strong>xG:</strong> {_fmt_num(xg,1)}</div>"
+                                + f"<div style='min-width:140px;'><strong>Progressive Passes:</strong> {prg}</div>"
+                                + "</div>"
                             )
 
-                            # Add strengths/weaknesses section
+                            # Strengths
                             if strengths:
-                                response += "**Strengths:**\n"
-                                for s in strengths:
-                                    response += f"- {s}\n"
-                                response += "\n"
+                                response_html.append("<div style='margin-top:8px;'><strong>Strengths:</strong><ul style='margin:6px 0 8px 18px;'>")
+                                for s in strengths[:8]:
+                                    item = s.lstrip("✓ ")
+                                    # keep text readable (inherit color from bubble), color only the icon
+                                    response_html.append(
+                                        f"<li style='color:inherit; margin-bottom:4px;'><span style='color:#16a34a; margin-right:8px;'>✓</span>{item}</li>"
+                                    )
+                                response_html.append("</ul></div>")
+
+                            # Weaknesses
                             if weaknesses:
-                                response += "**Weaknesses:**\n"
-                                for w in weaknesses:
-                                    response += f"- {w}\n"
-                                response += "\n"
+                                response_html.append("<div style='margin-top:6px;'><strong>Weaknesses:</strong><ul style='margin:6px 0 0 18px;'>")
+                                for w in weaknesses[:8]:
+                                    item = w.lstrip("✗ ")
+                                    response_html.append(
+                                        f"<li style='color:inherit; margin-bottom:4px;'><span style='color:#ef4444; margin-right:8px;'>✗</span>{item}</li>"
+                                    )
+                                response_html.append("</ul></div>")
+
+                            response_html.append("</div>")
+                            response = "".join(response_html)
 
                             # Build radar chart using previous logic: pick feature_cols_to_use
                             # Prefer trained feature_cols if available
@@ -280,7 +307,12 @@ with st.form("chat_form", clear_on_submit=True):
                                     fig = go.Figure()
                                     fig.add_trace(go.Scatterpolar(r=norm_avg + [norm_avg[0]], theta=labels + [labels[0]], fill='toself', name='League avg', line=dict(color='rgba(200,200,200,0.6)')))
                                     fig.add_trace(go.Scatterpolar(r=norm_player + [norm_player[0]], theta=labels + [labels[0]], fill='toself', name=chosen, line=dict(color='#0f766e')))
-                                    fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0,100])), showlegend=True, margin=dict(l=20,r=20,t=30,b=20))
+                                    fig.update_layout(
+                                        polar=dict(radialaxis=dict(visible=True, range=[0,100], tickfont=dict(size=10)), bgcolor='rgba(0,0,0,0)'),
+                                        showlegend=True,
+                                        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
+                                        margin=dict(l=10, r=10, t=20, b=10),
+                                    )
                                     st.session_state.setdefault("_deferred_charts", []).append(fig)
                                 except Exception as e:
                                     response += f"\n\n(Note: could not render radar chart: {e})"

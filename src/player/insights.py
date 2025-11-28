@@ -21,6 +21,19 @@ def _column_or_none(df: pd.DataFrame, col: str) -> Optional[pd.Series]:
     return df[col] if col in df.columns else None
 
 
+def ordinal(n: float) -> str:
+    """Return ordinal string for integer-like percentiles, e.g. 1 -> '1st', 2 -> '2nd', 3 -> '3rd', 11->'11th'."""
+    try:
+        i = int(round(float(n)))
+    except Exception:
+        return f"{n:.0f}th"
+    if 10 <= (i % 100) <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(i % 10, "th")
+    return f"{i}{suffix}"
+
+
 def generate_strengths_weaknesses(profile: PlayerProfile, df: pd.DataFrame, compare_group: str = "position",
                                    strong_thresh: float = 75.0, weak_thresh: float = 25.0) -> Tuple[List[str], List[str], Dict[str, Optional[float]]]:
     """Compute percentiles for a set of candidate metrics and return strengths and weaknesses.
@@ -118,9 +131,9 @@ def generate_strengths_weaknesses(profile: PlayerProfile, df: pd.DataFrame, comp
             continue
         label = label_map.get(metric, metric)
         if pct >= strong_thresh:
-            strengths.append(f"✓ {label} — {pct:.0f}th percentile")
+            strengths.append(f"✓ {label} — {ordinal(pct)} percentile")
         elif pct <= weak_thresh:
-            weaknesses.append(f"✗ {label} — {pct:.0f}th percentile")
+            weaknesses.append(f"✗ {label} — {ordinal(pct)} percentile")
 
     # Update profile
     profile.percentiles = percentiles
