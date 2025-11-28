@@ -53,24 +53,64 @@ class SimilarityModel:
 #   STREAMLIT COMPAT WRAPPER
 # ============================
 
-def find_similar_players(target_player: str, df: pd.DataFrame, top_k: int = 5):
-    """
-    Wrapper function used by Streamlit.
-    Picks the best available feature set and returns ONLY the list of names.
+def find_similar_players(target_player: str, df: pd.DataFrame, scaler=None, knn=None, feature_cols=None, top_k: int = 5):
+    """Compatibility wrapper for Streamlit.
+
+    Behavior:
+    - If `scaler`, `knn`, and `feature_cols` are provided (training pickle), use them
+      to compute nearest neighbors on the subset df.dropna(subset=feature_cols).
+    - Otherwise, fall back to building a `SimilarityModel` on the best available
+      in-df feature set.
+
+    Returns a list of player names (strings).
     """
 
+    # If we have a trained kNN model and feature columns, use it directly
+    if scaler is not None and knn is not None and feature_cols:
+        # Ensure columns exist in df
+        cols = [c for c in feature_cols if c in df.columns]
+        if len(cols) < 2:
+            raise ValueError("Not enough trained feature columns present in dataframe.")
+
+        df_sub = df.dropna(subset=cols).reset_index(drop=True)
+
+        # Find target in df_sub
+        matches = df_sub.index[df_sub["Player"].str.lower() == target_player.lower()].tolist()
+        if not matches:
+            # try substring match
+            matches = df_sub.index[df_sub["Player"].str.contains(target_player, case=False, na=False)].tolist()
+        if not matches:
+            raise ValueError(f"Player '{target_player}' not found in dataset (after filtering for trained features).")
+
+        target_idx = matches[0]
+
+        # Build scaled matrix (assume scaler was fitted on same ordering)
+        X = df_sub[cols].fillna(0).astype(float).values
+        X_scaled = scaler.transform(X)
+
+        # Query neighbors (request top_k+1 to skip self if included)
+        try:
+            distances, indices = knn.kneighbors(X_scaled[target_idx].reshape(1, -1), n_neighbors=min(len(df_sub), top_k + 1))
+            inds = indices[0].tolist()
+        except Exception:
+            # Fallback: compute euclidean distances manually
+            from sklearn.metrics import pairwise_distances
+            dists = pairwise_distances(X_scaled[target_idx].reshape(1, -1), X_scaled)[0]
+            inds = list(np.argsort(dists))[: min(len(dists), top_k + 1)]
+
+        # Remove self if present, then take top_k
+        inds = [i for i in inds if i != target_idx]
+        inds = inds[:top_k]
+
+        return df_sub.iloc[inds]["Player"].tolist()
+
+    # Otherwise fall back to building an internal model from available columns
     preferred_feature_sets = [
-        # Most detailed — if your FBref cleaned dataset contains them
-        ["Per 90 Minutes_xG", "Per 90 Minutes_xAG", "Progression_PrgP", "Playing Time_90s"],
-
-        # Basic attacking profile
+        ["Per_90_Minutes_xG", "Per_90_Minutes_xAG", "Progression_PrgP", "Playing_Time_90s"],
         ["Performance_Gls", "Performance_Ast", "Expected_xG", "Expected_xAG", "Progression_PrgP"],
-
-        # High-level
         ["goals", "assists", "xg", "xa", "progressive_passes", "ppa", "g+a"]
     ]
 
-    # Pick the first valid feature set
     for feature_set in preferred_feature_sets:
         usable = [col for col in feature_set if col in df.columns]
         if len(usable) >= 2:
@@ -78,5 +118,4 @@ def find_similar_players(target_player: str, df: pd.DataFrame, top_k: int = 5):
             results = model.find_similar_players(target_player, top_k=top_k)
             return results["Player"].tolist()
 
-    # No valid numeric columns
-    raise ValueError("❌ No suitable numeric features found in dataframe for similarity matching.")
+    raise ValueError("No suitable numeric features found in dataframe for similarity matching.")
