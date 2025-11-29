@@ -152,16 +152,16 @@ with st.form("chat_form", clear_on_submit=True):
 
         st.session_state.messages.append({"sender": "user", "text": user_query})
 
-        # ===== STEP 1: Intent Recognition =====
-        intent = predict_intent(user_query)
-
-        # ===== STEP 2: Entity Extraction =====
+        # ===== STEP 1: Entity Extraction =====
         entities = extract_entities(
             user_query,
             players_list,
             league_list,
             stat_list
         )
+
+        # ===== STEP 2: Intent Recognition (rule-based with entity-aware rules) =====
+        intent = predict_intent(user_query, entities)
 
         # ===== GENERATE RESPONSE =====
         response = ""
@@ -432,13 +432,54 @@ with st.form("chat_form", clear_on_submit=True):
                     response = "One of the players couldn't be found."
                 else:
                     a, b = r1.iloc[0], r2.iloc[0]
-                    response = (
-                        f"### 🔵 {p1} vs 🔴 {p2}\n"
-                        f"**Goals:** {a['Performance_Gls']} vs {b['Performance_Gls']}\n"
-                        f"**Assists:** {a['Performance_Ast']} vs {b['Performance_Ast']}\n"
-                        f"**xG:** {a['Expected_xG']} vs {b['Expected_xG']}\n"
-                        f"**Progressive Passes:** {a['Progression_PrgP']} vs {b['Progression_PrgP']}"
-                    )
+                    # Build a readable HTML comparison table (larger names, clear stat columns)
+                    try:
+                        left_g = a.get('Performance_Gls', 'N/A')
+                        right_g = b.get('Performance_Gls', 'N/A')
+                        left_ast = a.get('Performance_Ast', 'N/A')
+                        right_ast = b.get('Performance_Ast', 'N/A')
+                        left_xg = a.get('Expected_xG', 'N/A')
+                        right_xg = b.get('Expected_xG', 'N/A')
+                        left_prg = a.get('Progression_PrgP', 'N/A')
+                        right_prg = b.get('Progression_PrgP', 'N/A')
+
+                        response_html = []
+                        response_html.append("<div style='font-size:15px; line-height:1.45;'>")
+                        response_html.append(f"<div style='display:flex; justify-content:space-between; align-items:center;'>")
+                        response_html.append(f"<div style='font-weight:700; color:inherit; font-size:18px;'>🔵 {p1}</div>")
+                        response_html.append(f"<div style='font-weight:700; font-size:16px; text-align:center;'>Comparison</div>")
+                        response_html.append(f"<div style='font-weight:700; color:inherit; font-size:18px; text-align:right;'>🔴 {p2}</div>")
+                        response_html.append("</div>")
+
+                        response_html.append("<table style='width:100%; margin-top:8px; border-collapse:collapse;'>")
+                        # row helper
+                        def _row(l, label, r):
+                            return (
+                                "<tr>"
+                                f"<td style='width:40%; padding:6px; font-size:15px; font-weight:600; color:inherit;'>{l}</td>"
+                                f"<td style='width:20%; padding:6px; text-align:center; color:inherit; font-size:14px;'>{label}</td>"
+                                f"<td style='width:40%; padding:6px; font-size:15px; font-weight:600; color:inherit; text-align:right;'>{r}</td>"
+                                "</tr>"
+                            )
+
+                        response_html.append(_row(left_g, 'Goals', right_g))
+                        response_html.append(_row(left_ast, 'Assists', right_ast))
+                        response_html.append(_row(left_xg, 'xG', right_xg))
+                        response_html.append(_row(left_prg, 'Progressive Passes', right_prg))
+
+                        response_html.append("</table>")
+                        response_html.append("</div>")
+
+                        response = "".join(response_html)
+                    except Exception as e:
+                        # Fallback to previous markdown if anything goes wrong
+                        response = (
+                            f"### 🔵 {p1} vs 🔴 {p2}\n"
+                            f"**Goals:** {a['Performance_Gls']} vs {b['Performance_Gls']}\n"
+                            f"**Assists:** {a['Performance_Ast']} vs {b['Performance_Ast']}\n"
+                            f"**xG:** {a['Expected_xG']} vs {b['Expected_xG']}\n"
+                            f"**Progressive Passes:** {a['Progression_PrgP']} vs {b['Progression_PrgP']}"
+                        )
 
         # ---------------------------------------------------
         # SIMILAR PLAYERS
@@ -451,9 +492,35 @@ with st.form("chat_form", clear_on_submit=True):
 
                 try:
                     sims = find_similar_players(target, df, scaler=scaler, knn=knn, feature_cols=feature_cols)
-                    response = f"### Players similar to **{target}**:\n"
-                    for s in sims:
-                        response += f"- {s}\n"
+
+                    # Build clean HTML list. `sims` may be a list of dicts (preferred) or strings (legacy).
+                    response_html = []
+                    # Slightly larger font for similar-players block for readability
+                    response_html.append(f"<div style='font-size:15px; line-height:1.45;'><strong>Players similar to <em>{target}</em>:</strong>")
+
+                    # If sims is list of dicts with metadata
+                    if sims and isinstance(sims[0], dict):
+                        response_html.append("<ul style='margin:6px 0 6px 18px;'>")
+                        for item in sims:
+                            name = item.get("name")
+                            squad = item.get("squad") or ""
+                            pos = item.get("pos") or ""
+                            score = item.get("score")
+                            score_label = f"{score*100:.0f}%" if isinstance(score, (float, int)) else ""
+                            meta = " • ".join([p for p in [pos, squad] if p])
+                            # Use a readable meta span (not <small>) and make the player name slightly larger/bold
+                            meta_label = f"<span style='font-size:13px; color:inherit; opacity:0.9;'>{score_label}{(' • ' + meta) if meta else ''}</span>"
+                            response_html.append(f"<li style='margin-bottom:8px; color:inherit;'><span style='font-size:15px; font-weight:600;'>{name}</span> {meta_label}</li>")
+                        response_html.append("</ul>")
+                    else:
+                        # legacy: list of names
+                        response_html.append("<ul style='margin:6px 0 6px 18px;'>")
+                        for name in sims:
+                            response_html.append(f"<li style='margin-bottom:6px; color:inherit;'>{name}</li>")
+                        response_html.append("</ul>")
+
+                    response_html.append("</div>")
+                    response = "".join(response_html)
                 except Exception as e:
                     response = f"Could not compute similarity: {e}"
 

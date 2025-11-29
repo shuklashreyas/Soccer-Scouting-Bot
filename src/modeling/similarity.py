@@ -102,7 +102,20 @@ def find_similar_players(target_player: str, df: pd.DataFrame, scaler=None, knn=
         inds = [i for i in inds if i != target_idx]
         inds = inds[:top_k]
 
-        return df_sub.iloc[inds]["Player"].tolist()
+        # Compute cosine similarity scores for the returned indices
+        from sklearn.metrics.pairwise import cosine_similarity
+        target_vec = X_scaled[target_idx].reshape(1, -1)
+        sims = cosine_similarity(target_vec, X_scaled[inds])[0] if len(inds) > 0 else []
+
+        results = []
+        for i, idx in enumerate(inds):
+            name = df_sub.iloc[idx]["Player"]
+            squad = df_sub.iloc[idx].get("Squad") if "Squad" in df_sub.columns else None
+            pos = df_sub.iloc[idx].get("Pos") if "Pos" in df_sub.columns else None
+            score = float(sims[i]) if len(sims) > i else None
+            results.append({"name": name, "squad": squad, "pos": pos, "score": score})
+
+        return results
 
     # Otherwise fall back to building an internal model from available columns
     preferred_feature_sets = [
@@ -116,6 +129,10 @@ def find_similar_players(target_player: str, df: pd.DataFrame, scaler=None, knn=
         if len(usable) >= 2:
             model = SimilarityModel(df, usable)
             results = model.find_similar_players(target_player, top_k=top_k)
-            return results["Player"].tolist()
+            # results is a DataFrame with Player, Squad, Pos, similarity
+            out = []
+            for _, row in results.iterrows():
+                out.append({"name": row["Player"], "squad": row.get("Squad"), "pos": row.get("Pos"), "score": float(row.get("similarity", None)) if row.get("similarity", None) is not None else None})
+            return out
 
     raise ValueError("No suitable numeric features found in dataframe for similarity matching.")
