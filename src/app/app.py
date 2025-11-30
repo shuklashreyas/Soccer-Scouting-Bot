@@ -45,6 +45,20 @@ def load_data():
 df, players_list, league_list, stat_list = load_data()
 
 
+# Cache a single embedding model instance so we don't rebuild it per query
+@st.cache_resource
+def get_embedding_model():
+    try:
+        # Import lazily to avoid raising heavy import errors at module import time
+        from src.modeling.similarity import PlayerEmbeddingModel
+
+        model = PlayerEmbeddingModel(df)
+        return model
+    except Exception:
+        # If the modeling imports fail (missing packages), return None so the UI can fall back
+        return None
+
+
 # ======================================
 # LOAD SIMILARITY MODEL (OPTIONAL)
 # Your new wrapper doesn't need scaler/knn but we keep it for compatibility
@@ -89,7 +103,7 @@ try:
         if not st.session_state.get("_similarity_model_missing_shown"):
             st.session_state["_similarity_model_missing_shown"] = True
             st.warning(
-                "Similarity model not found — run `python src/modeling/train_similarity_model.py` to create `data/models/similarity_model.pkl`."
+                "Similarity model not found — run `python src/modeling/train_similarity_model.py` to create `data/models/similarit                python3 src/modeling/debug_profiles.pyy_model.pkl`."
             )
 except Exception:
     # If session_state isn't available yet (rare), skip the UI warning silently
@@ -491,36 +505,54 @@ with st.form("chat_form", clear_on_submit=True):
                 target = entities["players"][0]
 
                 try:
-                    sims = find_similar_players(target, df, scaler=scaler, knn=knn, feature_cols=feature_cols)
+                    # Prefer the embedding model (cached) which provides explanations
+                    model = get_embedding_model()
+                    if model is not None:
+                        sims_df = model.get_similar_players(target, top_k=6)
 
-                    # Build clean HTML list. `sims` may be a list of dicts (preferred) or strings (legacy).
-                    response_html = []
-                    # Slightly larger font for similar-players block for readability
-                    response_html.append(f"<div style='font-size:15px; line-height:1.45;'><strong>Players similar to <em>{target}</em>:</strong>")
-
-                    # If sims is list of dicts with metadata
-                    if sims and isinstance(sims[0], dict):
+                        response_html = []
+                        response_html.append(f"<div style='font-size:15px; line-height:1.45;'><strong>Players similar to <em>{target}</em>:</strong>")
                         response_html.append("<ul style='margin:6px 0 6px 18px;'>")
-                        for item in sims:
-                            name = item.get("name")
-                            squad = item.get("squad") or ""
-                            pos = item.get("pos") or ""
-                            score = item.get("score")
+
+                        for _, row in sims_df.iterrows():
+                            name = row["Player"]
+                            squad = row.get("Squad", "") if "Squad" in row.index else ""
+                            pos = row.get(model.pos_col, "") if model.pos_col and model.pos_col in row.index else ""
+                            score = row.get("similarity", None)
                             score_label = f"{score*100:.0f}%" if isinstance(score, (float, int)) else ""
                             meta = " • ".join([p for p in [pos, squad] if p])
-                            # Use a readable meta span (not <small>) and make the player name slightly larger/bold
                             meta_label = f"<span style='font-size:13px; color:inherit; opacity:0.9;'>{score_label}{(' • ' + meta) if meta else ''}</span>"
                             response_html.append(f"<li style='margin-bottom:8px; color:inherit;'><span style='font-size:15px; font-weight:600;'>{name}</span> {meta_label}</li>")
+
                         response_html.append("</ul>")
+
+                        # Add explanation vs top match
+                        if not sims_df.empty:
+                            try:
+                                top_match = sims_df.iloc[0]["Player"]
+                                expl = model.explain_pair(target, top_match)
+                                response_html.append("<hr style='opacity:0.12;'/>")
+                                response_html.append(f"<div style='margin-top:8px;'><strong>Role summary:</strong> {expl.get('role_info','')}</div>")
+                                if expl.get("shared_strengths"):
+                                    response_html.append(f"<div style='margin-top:6px;'><strong>Shared strengths:</strong> {', '.join(expl['shared_strengths'])}</div>")
+                                if expl.get("style_summary"):
+                                    response_html.append(f"<div style='margin-top:6px;'><em>{expl['style_summary']}</em></div>")
+                            except Exception as e:
+                                response_html.append(f"<div style='margin-top:8px; font-size:13px; color:inherit;'>(Could not compute explanation: {e})</div>")
+
+                        response_html.append("</div>")
+                        response = "".join(response_html)
                     else:
-                        # legacy: list of names
+                        # Fallback: use the lightweight wrapper that returns names only
+                        sims = find_similar_players(target, df, top_k=6)
+                        response_html = []
+                        response_html.append(f"<div style='font-size:15px; line-height:1.45;'><strong>Players similar to <em>{target}</em>:</strong>")
                         response_html.append("<ul style='margin:6px 0 6px 18px;'>")
                         for name in sims:
                             response_html.append(f"<li style='margin-bottom:6px; color:inherit;'>{name}</li>")
                         response_html.append("</ul>")
-
-                    response_html.append("</div>")
-                    response = "".join(response_html)
+                        response_html.append("</div>")
+                        response = "".join(response_html)
                 except Exception as e:
                     response = f"Could not compute similarity: {e}"
 

@@ -99,6 +99,13 @@ FRIENDLY_NAMES = {
     "Aerial Duels_Won%": "Aerial win %"
 }
 
+# Human-readable cluster labels (tune after inspecting clusters)
+ROLE_LABELS = {
+    7: "Target Forward / Box Striker",
+    8: "Power Forward / Advanced Striker",
+    # Add other cluster mappings here after inspection
+}
+
 
 # -------------------------------
 #  MAIN MODEL
@@ -210,7 +217,11 @@ class PlayerEmbeddingModel:
         Placeholder: you can manually map cluster IDs to human labels later,
         after inspecting cluster stats.
         """
-        return f"Role Cluster {cluster_id}"
+        # Prefer human-friendly labels when available
+        try:
+            return ROLE_LABELS.get(int(cluster_id), f"Role Cluster {cluster_id}")
+        except Exception:
+            return f"Role Cluster {cluster_id}"
 
     # -------------------------------
     #  PUBLIC INTERFACE
