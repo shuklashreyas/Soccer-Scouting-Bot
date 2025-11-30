@@ -104,6 +104,7 @@ ROLE_LABELS = {
     7: "Target Forward / Box Striker",
     8: "Power Forward / Advanced Striker",
     # Add other cluster mappings here after inspection
+    9: "Ball-Playing Defensive Mid / Defender",
 }
 
 
