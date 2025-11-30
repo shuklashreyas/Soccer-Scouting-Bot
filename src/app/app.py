@@ -17,7 +17,7 @@ if str(ROOT) not in sys.path:
 # Your modules
 from src.nlp.intent_classifier import predict_intent
 from src.nlp.entity_extraction import extract_entities
-from src.modeling.similarity import find_similar_players
+from src.modeling.similarity import find_similar_players, ROLE_LABELS
 from src.player.lookup import lookup_player
 from src.player.extract import extract_player_profile
 from src.player.roles import classify_role
@@ -533,6 +533,25 @@ with st.form("chat_form", clear_on_submit=True):
                                 expl = model.explain_pair(target, top_match)
                                 response_html.append("<hr style='opacity:0.12;'/>")
                                 response_html.append(f"<div style='margin-top:8px;'><strong>Role summary:</strong> {expl.get('role_info','')}</div>")
+                                # Attempt to include richer role metadata from ROLE_LABELS
+                                try:
+                                    top_cluster = int(sims_df.iloc[0]["role_cluster"])
+                                    role_meta = ROLE_LABELS.get(top_cluster)
+                                    if isinstance(role_meta, dict):
+                                        profile = role_meta.get('profile')
+                                        examples = role_meta.get('examples')
+                                        summary = role_meta.get('summary')
+                                        if profile:
+                                            response_html.append(f"<div style='margin-top:6px;'><strong>Role profile:</strong> {profile}</div>")
+                                        if examples:
+                                            ex_list = ', '.join(examples[:6])
+                                            response_html.append(f"<div style='margin-top:6px;'><strong>Examples:</strong> {ex_list}</div>")
+                                        if summary:
+                                            response_html.append(f"<div style='margin-top:6px;'><em>{summary}</em></div>")
+                                except Exception:
+                                    # ignore failures to keep UI stable
+                                    pass
+
                                 if expl.get("shared_strengths"):
                                     response_html.append(f"<div style='margin-top:6px;'><strong>Shared strengths:</strong> {', '.join(expl['shared_strengths'])}</div>")
                                 if expl.get("style_summary"):

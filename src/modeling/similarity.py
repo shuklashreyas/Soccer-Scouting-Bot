@@ -99,12 +99,109 @@ FRIENDLY_NAMES = {
     "Aerial Duels_Won%": "Aerial win %"
 }
 
-# Human-readable cluster labels (tune after inspecting clusters)
+# Human-readable cluster labels and detailed role metadata.
+# Each cluster id maps to a dict with: label, profile, examples, summary.
 ROLE_LABELS = {
-    7: "Target Forward / Box Striker",
-    8: "Power Forward / Advanced Striker",
-    # Add other cluster mappings here after inspection
-    9: "Ball-Playing Defensive Mid / Defender",
+    7: {
+        "label": "Elite Central Finisher",
+        "profile": (
+            "extreme xG, high progressive receptions, good movement, low creation"
+        ),
+        "examples": ["Haaland", "Kane", "Mbappé", "Mateta"],
+        "summary": (
+            "Pure penalty-box killers with elite movement and efficiency."
+        ),
+    },
+    8: {
+        "label": "High-Volume Shooters / Secondary Finishers",
+        "profile": (
+            "high xG, mid receptions, mid passing, powerful runners, not elite creators"
+        ),
+        "examples": ["Gyökeres", "Sarr", "Budimir", "Griezmann", "Iglesias"],
+        "summary": (
+            "Heavy-shooting forwards who combine decent link-play with strong box presence."
+        ),
+    },
+    4: {
+        "label": "Target 9 / Ball-Retaining Strikers",
+        "profile": ("good xG, decent receptions, moderate creation, physical 9s"),
+        "examples": ["Calvert-Lewin", "Ekitike", "Evanilson", "Isidor"],
+        "summary": (
+            "Big forwards who hold up the ball and provide a vertical reference point."
+        ),
+    },
+    1: {
+        "label": "Superstar Inverted Forwards / Elite Finishers & Creators",
+        "profile": (
+            "high receptions, strong creation + strong finishing, elite ball carriers"
+        ),
+        "examples": ["Salah", "Gakpo", "Bruno Fernandes", "Minteh", "Pedro Neto"],
+        "summary": (
+            "Goal-scoring creators who operate between lines and cut inside."
+        ),
+    },
+    11: {
+        "label": "Advanced Playmaking Wingers / Creative Threats",
+        "profile": ("balanced xG + xAG, high receptions, high carries"),
+        "examples": ["Foden", "Bowen", "Eze", "Buendia", "Gibbs-White"],
+        "summary": (
+            "Wingers/AMs who both score and create, driving final-third actions."
+        ),
+    },
+    5: {
+        "label": "Creative Dribbling Wingers / Ball-Carrying Engines",
+        "profile": (
+            "very high progressive passing + receptions, elite carries, high xAG"
+        ),
+        "examples": ["Doku", "Garnacho", "Grealish", "Iwobi", "Kudus"],
+        "summary": (
+            "Dribbling specialists who advance play and create high-quality chances."
+        ),
+    },
+    3: {
+        "label": "High-Workrate Wide Forwards / Transitional Threats",
+        "profile": ("strong carries, strong receptions, moderate goal threat"),
+        "examples": ["Harvey Barnes", "Oscar Bobb", "Elanga", "Matheus Cunha"],
+        "summary": (
+            "Pressing wingers + transitional attackers who rely on pace and movement."
+        ),
+    },
+    10: {
+        "label": "Hybrid 8/10s & Second Strikers",
+        "profile": ("mid receptions, mid xG, moderate creativity"),
+        "examples": ["Barkley", "Fabio Carvalho", "Jhon Arias"],
+        "summary": (
+            "Creative hybrid players who drift into pockets to link play."
+        ),
+    },
+    0: {
+        "label": "Attacking Fullbacks / Offensive Wide Progressors",
+        "profile": ("high progressive passes + receptions, moderate xAG"),
+        "examples": ["Chiesa", "Cherki", "Chukwueze", "Digne", "Ajer"],
+        "summary": (
+            "Fullbacks/wingers who progress play heavily but aren’t elite scorers."
+        ),
+    },
+    6: {
+        "label": "Deep-Lying Playmakers / Box-to-Box Controllers",
+        "profile": ("very high progressive passes, mid receptions, some goal threat"),
+        "examples": ["Caicedo", "Bruno Guimarães", "Cucurella", "Gravenberch"],
+        "summary": (
+            "Midfield engines who build from deep and control tempo."
+        ),
+    },
+    9: {
+        "label": "Defensive Anchors / Ball-Winning Midfielders",
+        "profile": ("high progressive passes but low xG, low receptions"),
+        "examples": ["Tyler Adams", "Ampadu", "Andersen", "Bassey"],
+        "summary": ("Destroyers who circulate possession and defend aggressively."),
+    },
+    2: {
+        "label": "Defensive Stoppers / Deep Defenders",
+        "profile": ("extremely low xG/xAG, minimal receptions, low carries"),
+        "examples": ["Adarabioyo", "Aguerd", "Rayan Aït-Nouri", "Alisson"],
+        "summary": ("Pure defensive profiles — CBs, GKs, low-touch defensive players."),
+    },
 }
 
 
@@ -218,9 +315,15 @@ class PlayerEmbeddingModel:
         Placeholder: you can manually map cluster IDs to human labels later,
         after inspecting cluster stats.
         """
-        # Prefer human-friendly labels when available
+        # Prefer human-friendly labels when available. ROLE_LABELS entries may
+        # be either a string (legacy) or a dict with a 'label' key (preferred).
         try:
-            return ROLE_LABELS.get(int(cluster_id), f"Role Cluster {cluster_id}")
+            entry = ROLE_LABELS.get(int(cluster_id))
+            if isinstance(entry, dict):
+                return entry.get("label", f"Role Cluster {cluster_id}")
+            if isinstance(entry, str):
+                return entry
+            return f"Role Cluster {cluster_id}"
         except Exception:
             return f"Role Cluster {cluster_id}"
 
