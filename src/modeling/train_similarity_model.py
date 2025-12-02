@@ -5,15 +5,17 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import NearestNeighbors
 
 print("📘 Loading cleaned dataset...")
-df = pd.read_csv("data/processed/all_leagues_clean.csv")
+df = pd.read_csv("../../data/processed/z_scores.csv")
 
 # Important features
 feature_cols = [
     # Use column names that match `all_leagues_clean.csv` (underscores)
-    "Per_90_Minutes_xG",
-    "Per_90_Minutes_xAG",
-    "Progression_PrgP",
-    "Playing_Time_90s"
+    "Shooting_Score",
+    "Passing_Score",
+    "Defending_Score",
+    "Carrying_Score",
+    "Dribbling_Score",
+    "Creation_Score"
 ]
 
 # Filter valid rows
