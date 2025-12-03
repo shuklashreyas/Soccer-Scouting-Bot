@@ -69,8 +69,16 @@ def get_embedding_model():
         # Import lazily to avoid raising heavy import errors at module import time
         from src.modeling.similarity import PlayerEmbeddingModel
 
-        model = PlayerEmbeddingModel(df)
-        return model
+        # Prefer a persisted model for faster cold-starts
+        model_path = "data/models/player_embedding_model.pkl"
+        try:
+            return PlayerEmbeddingModel.load(model_path)
+        except Exception:
+            # If loading fails (missing file or mismatch), fall back to building
+            try:
+                return PlayerEmbeddingModel(df)
+            except Exception:
+                return None
     except Exception:
         # If the modeling imports fail (missing packages), return None so the UI can fall back
         return None
@@ -113,6 +121,49 @@ st.set_page_config(page_title="Soccer Scouting Chatbot", layout="wide")
 
 st.title("⚽ Soccer Scouting Chatbot — Working Demo")
 st.markdown("Ask about **players, comparisons, or find similar profiles.**")
+
+# Cluster Explorer: show cluster labels and sample members before assigning
+with st.expander("Cluster Explorer (show role clusters and sample members)"):
+    try:
+        model = get_embedding_model()
+        if model is None:
+            st.info("Embedding model not available — run training script or check model file to view clusters.")
+        else:
+            # show summary: number of players, number of clusters
+            n_players = len(model.df)
+            n_clusters = len(set(model.role_labels))
+            st.markdown(f"**Model contains {n_players} players across {n_clusters} clusters.**")
+
+            # iterate clusters in numeric order and display label, profile, examples, size, sample players
+            clusters = sorted(list(set(model.role_labels)))
+            for cid in clusters:
+                label = model._cluster_name(int(cid))
+                # try to get rich metadata from ROLE_LABELS if present
+                try:
+                    from src.modeling.similarity import ROLE_LABELS
+                    meta = ROLE_LABELS.get(int(cid))
+                except Exception:
+                    meta = None
+
+                st.markdown(f"---\n**Cluster {cid}: {label}**")
+                if isinstance(meta, dict):
+                    profile = meta.get('profile')
+                    examples = meta.get('examples')
+                    summary = meta.get('summary')
+                    if profile:
+                        st.markdown(f"**Profile:** {profile}")
+                    if examples:
+                        st.markdown(f"**Examples:** {', '.join(examples[:8])}")
+                    if summary:
+                        st.markdown(f"*{summary}*")
+
+                members = model.df[model.df['role_cluster'] == int(cid)]
+                st.markdown(f"**Cluster size:** {len(members)}")
+                # show small sample table
+                sample = members[['Player']].head(12)
+                st.table(sample)
+    except Exception as e:
+        st.warning(f"Could not display clusters: {e}")
 
 # If similarity model missing, show a single in-app warning (avoid spamming console)
 try:
@@ -526,6 +577,31 @@ with st.form("chat_form", clear_on_submit=True):
 
                         response_html.append("</table>")
                         response_html.append("</div>")
+
+                        # Attempt to run the richer comparison engine and render its
+                        # NLP-style outputs below the numeric table.
+                        try:
+                            from src.modeling.compare import PlayerComparisonEngine
+
+                            try:
+                                engine = PlayerComparisonEngine(model_path="data/models/player_embedding_model.pkl")
+                            except Exception:
+                                engine = PlayerComparisonEngine(df=df)
+
+                            comp = engine.compare(p1, p2, top_k=5)
+
+                            response_html.append("<hr style='opacity:0.12;'/>")
+                            response_html.append(f"<div style='margin-top:8px;'><strong>Comparison role summary:</strong> {comp.get('role_info','')}</div>")
+                            if comp.get('shared_strengths'):
+                                response_html.append(f"<div style='margin-top:6px;'><strong>Shared strengths:</strong> {', '.join(comp['shared_strengths'])}</div>")
+                            if comp.get('advantages_player_a'):
+                                response_html.append(f"<div style='margin-top:6px;'><strong>Advantages — {p1}:</strong> {', '.join(comp['advantages_player_a'])}</div>")
+                            if comp.get('advantages_player_b'):
+                                response_html.append(f"<div style='margin-top:6px;'><strong>Advantages — {p2}:</strong> {', '.join(comp['advantages_player_b'])}</div>")
+                            if comp.get('final_summary'):
+                                response_html.append(f"<div style='margin-top:8px;'><em>{comp['final_summary']}</em></div>")
+                        except Exception as e:
+                            response_html.append(f"<div style='margin-top:8px; color:inherit;'>(Could not compute detailed comparison: {e})</div>")
 
                         response = "".join(response_html)
                     except Exception as e:

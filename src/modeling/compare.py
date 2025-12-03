@@ -2,6 +2,8 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
 from src.modeling.similarity import PlayerEmbeddingModel, FRIENDLY_NAMES
+import pickle
+from pathlib import Path
 
 
 class PlayerComparisonEngine:
@@ -16,8 +18,32 @@ class PlayerComparisonEngine:
       - final scouting report
     """
 
-    def __init__(self, df: pd.DataFrame):
-        self.model = PlayerEmbeddingModel(df)
+    def __init__(self, df: pd.DataFrame = None, model: PlayerEmbeddingModel = None, model_path: str = None):
+        """
+        Initialize the comparison engine.
+
+        Provide either:
+         - `model`: an instantiated `PlayerEmbeddingModel`, or
+         - `model_path`: path to a pickled `PlayerEmbeddingModel`, or
+         - `df`: a DataFrame (will build an in-memory model).
+
+        Building from `df` is the slowest option; prefer passing a pre-built
+        `model` or a `model_path` to a persisted model.
+        """
+        if model is not None:
+            self.model = model
+        elif model_path is not None:
+            # load persisted model
+            p = Path(model_path)
+            if not p.exists():
+                raise FileNotFoundError(f"Model file not found: {model_path}")
+            with open(p, "rb") as f:
+                self.model = pickle.load(f)
+        elif df is not None:
+            self.model = PlayerEmbeddingModel(df)
+        else:
+            raise ValueError("Provide either df, model, or model_path to initialize PlayerComparisonEngine")
+
         self.df = self.model.df
 
     def _idx(self, name):
@@ -45,18 +71,20 @@ class PlayerComparisonEngine:
         # --- ROLE CLUSTER COMPARISON ---
         cluster_a = int(self.model.role_labels[idx_a])
         cluster_b = int(self.model.role_labels[idx_b])
-        role_name_a = f"Role Cluster {cluster_a}"
-        role_name_b = f"Role Cluster {cluster_b}"
+
+        # Use the model's friendly cluster label when available
+        role_label_a = self.model._cluster_name(cluster_a)
+        role_label_b = self.model._cluster_name(cluster_b)
 
         if cluster_a == cluster_b:
             role_info = (
-                f"Both players belong to **{role_name_a}**, meaning they operate in "
+                f"Both players belong to **{role_label_a}**, meaning they operate in "
                 "similar zones and assume similar tactical responsibilities."
             )
         else:
             role_info = (
-                f"{row_a['Player']} is in **{role_name_a}**, while "
-                f"{row_b['Player']} is in **{role_name_b}** — indicating similar end output but "
+                f"{row_a['Player']} is in **{role_label_a}**, while "
+                f"{row_b['Player']} is in **{role_label_b}** — indicating similar end output but "
                 "different tactical applications and pitch behaviors."
             )
 
@@ -102,6 +130,21 @@ class PlayerComparisonEngine:
             if len(adv_b) == top_k:
                 break
 
+        # --- STRUCTURED PER-FEATURE OUTPUT ---
+        feature_details = {}
+        for i, feat in enumerate(feature_cols):
+            z_a_i = float(z_a[i])
+            z_b_i = float(z_b[i])
+            d = float(diff[i])
+            ov = float(overlap[i])
+            feature_details[feat] = {
+                "z_a": z_a_i,
+                "z_b": z_b_i,
+                "diff": d,
+                "overlap": ov,
+                "both_above": bool(z_a_i > 0 and z_b_i > 0),
+            }
+
         # --- STYLE SUMMARY (NLP LOGIC) ---
         if shared_feats:
             if len(shared_feats) > 1:
@@ -132,6 +175,7 @@ class PlayerComparisonEngine:
             "advantages_player_b": adv_b,
             "style_commentary": style_text,
             "final_summary": final_paragraph,
+            "feature_details": feature_details,
         }
 
     def _build_summary(self, name_a, name_b, role_text, shared, adv_a, adv_b):

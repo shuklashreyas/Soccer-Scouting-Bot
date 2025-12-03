@@ -7,6 +7,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
 from sklearn.metrics.pairwise import cosine_similarity
+import pickle
+from pathlib import Path
 
 # -------------------------------
 #  CONFIG: FEATURE GROUPS
@@ -37,109 +39,20 @@ FRIENDLY_NAMES = {
     "Defending_Score": "Defending",
 }
 
-# Human-readable cluster labels and detailed role metadata.
-# Each cluster id maps to a dict with: label, profile, examples, summary.
+# Human-readable cluster labels (simple mapping: cluster id -> label)
 ROLE_LABELS = {
-    7: {
-        "label": "Elite Central Finisher",
-        "profile": (
-            "extreme xG, high progressive receptions, good movement, low creation"
-        ),
-        "examples": ["Haaland", "Kane", "Mbappé", "Mateta"],
-        "summary": (
-            "Pure penalty-box killers with elite movement and efficiency."
-        ),
-    },
-    8: {
-        "label": "High-Volume Shooters / Secondary Finishers",
-        "profile": (
-            "high xG, mid receptions, mid passing, powerful runners, not elite creators"
-        ),
-        "examples": ["Gyökeres", "Sarr", "Budimir", "Griezmann", "Iglesias"],
-        "summary": (
-            "Heavy-shooting forwards who combine decent link-play with strong box presence."
-        ),
-    },
-    4: {
-        "label": "Target 9 / Ball-Retaining Strikers",
-        "profile": ("good xG, decent receptions, moderate creation, physical 9s"),
-        "examples": ["Calvert-Lewin", "Ekitike", "Evanilson", "Isidor"],
-        "summary": (
-            "Big forwards who hold up the ball and provide a vertical reference point."
-        ),
-    },
-    1: {
-        "label": "Superstar Inverted Forwards / Elite Finishers & Creators",
-        "profile": (
-            "high receptions, strong creation + strong finishing, elite ball carriers"
-        ),
-        "examples": ["Salah", "Gakpo", "Bruno Fernandes", "Minteh", "Pedro Neto"],
-        "summary": (
-            "Goal-scoring creators who operate between lines and cut inside."
-        ),
-    },
-    11: {
-        "label": "Advanced Playmaking Wingers / Creative Threats",
-        "profile": ("balanced xG + xAG, high receptions, high carries"),
-        "examples": ["Foden", "Bowen", "Eze", "Buendia", "Gibbs-White"],
-        "summary": (
-            "Wingers/AMs who both score and create, driving final-third actions."
-        ),
-    },
-    5: {
-        "label": "Creative Dribbling Wingers / Ball-Carrying Engines",
-        "profile": (
-            "very high progressive passing + receptions, elite carries, high xAG"
-        ),
-        "examples": ["Doku", "Garnacho", "Grealish", "Iwobi", "Kudus"],
-        "summary": (
-            "Dribbling specialists who advance play and create high-quality chances."
-        ),
-    },
-    3: {
-        "label": "High-Workrate Wide Forwards / Transitional Threats",
-        "profile": ("strong carries, strong receptions, moderate goal threat"),
-        "examples": ["Harvey Barnes", "Oscar Bobb", "Elanga", "Matheus Cunha"],
-        "summary": (
-            "Pressing wingers + transitional attackers who rely on pace and movement."
-        ),
-    },
-    10: {
-        "label": "Hybrid 8/10s & Second Strikers",
-        "profile": ("mid receptions, mid xG, moderate creativity"),
-        "examples": ["Barkley", "Fabio Carvalho", "Jhon Arias"],
-        "summary": (
-            "Creative hybrid players who drift into pockets to link play."
-        ),
-    },
-    0: {
-        "label": "Attacking Fullbacks / Offensive Wide Progressors",
-        "profile": ("high progressive passes + receptions, moderate xAG"),
-        "examples": ["Chiesa", "Cherki", "Chukwueze", "Digne", "Ajer"],
-        "summary": (
-            "Fullbacks/wingers who progress play heavily but aren’t elite scorers."
-        ),
-    },
-    6: {
-        "label": "Deep-Lying Playmakers / Box-to-Box Controllers",
-        "profile": ("very high progressive passes, mid receptions, some goal threat"),
-        "examples": ["Caicedo", "Bruno Guimarães", "Cucurella", "Gravenberch"],
-        "summary": (
-            "Midfield engines who build from deep and control tempo."
-        ),
-    },
-    9: {
-        "label": "Defensive Anchors / Ball-Winning Midfielders",
-        "profile": ("high progressive passes but low xG, low receptions"),
-        "examples": ["Tyler Adams", "Ampadu", "Andersen", "Bassey"],
-        "summary": ("Destroyers who circulate possession and defend aggressively."),
-    },
-    2: {
-        "label": "Defensive Stoppers / Deep Defenders",
-        "profile": ("extremely low xG/xAG, minimal receptions, low carries"),
-        "examples": ["Adarabioyo", "Aguerd", "Rayan Aït-Nouri", "Alisson"],
-        "summary": ("Pure defensive profiles — CBs, GKs, low-touch defensive players."),
-    },
+    0: "Attacking Fullbacks / Offensive Wide Progressors",
+    1: "Superstar Inverted Forwards / Elite Finishers & Creators",
+    2: "Defensive Stoppers / Deep Defenders",
+    3: "High-Workrate Wide Forwards / Transitional Threats",
+    4: "Target 9 / Ball-Retaining Strikers",
+    5: "Creative Dribbling Wingers / Ball-Carrying Engines",
+    6: "Deep-Lying Playmakers / Box-to-Box Controllers",
+    7: "Elite Central Finisher",
+    8: "High-Volume Shooters / Secondary Finishers",
+    9: "Defensive Anchors / Ball-Winning Midfielders",
+    10: "Hybrid 8/10s & Second Strikers",
+    11: "Advanced Playmaking Wingers / Creative Threats",
 }
 
 
@@ -226,6 +139,30 @@ class PlayerEmbeddingModel:
             self.role_labels = np.zeros(self.embeddings.shape[0], dtype=int)
 
         self.df["role_cluster"] = self.role_labels
+
+    # -------------------------------
+    #  Persistence helpers
+    # -------------------------------
+    def save(self, path: str):
+        """Serialize the full model (including fitted sklearn objects and
+        the filtered dataframe) to `path` using pickle.
+        """
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "wb") as f:
+            pickle.dump(self, f)
+
+    @staticmethod
+    def load(path: str):
+        """Load a pickled PlayerEmbeddingModel instance from `path`.
+        Returns the deserialized object.
+        """
+        p = Path(path)
+        if not p.exists():
+            raise FileNotFoundError(f"Model file not found: {path}")
+        with open(p, "rb") as f:
+            obj = pickle.load(f)
+        return obj
 
     # -------------------------------
     #  HELPERS
