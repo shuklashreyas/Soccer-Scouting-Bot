@@ -139,6 +139,9 @@ class PlayerEmbeddingModel:
             self.role_labels = np.zeros(self.embeddings.shape[0], dtype=int)
 
         self.df["role_cluster"] = self.role_labels
+        # Optional persistent mapping: cluster_id -> human label (frozen)
+        # This can be set by an admin script to avoid label drift across retrains.
+        self.cluster_label_map = {}
 
     # -------------------------------
     #  Persistence helpers
@@ -163,6 +166,20 @@ class PlayerEmbeddingModel:
         with open(p, "rb") as f:
             obj = pickle.load(f)
         return obj
+
+    def set_cluster_label_map(self, mapping: dict):
+        """Set a persistent cluster label mapping (cluster_id -> label string).
+
+        This will be serialized when `save()` is called.
+        """
+        # normalize keys to int
+        norm = {int(k): v for k, v in mapping.items()}
+        self.cluster_label_map = norm
+
+    def update_and_save_labels(self, mapping: dict, path: str):
+        """Convenience: set mapping and save the model to `path`."""
+        self.set_cluster_label_map(mapping)
+        self.save(path)
 
     # -------------------------------
     #  HELPERS
@@ -190,6 +207,13 @@ class PlayerEmbeddingModel:
         Placeholder: you can manually map cluster IDs to human labels later,
         after inspecting cluster stats.
         """
+        # Prefer an explicit frozen mapping set on the model instance first.
+        try:
+            if getattr(self, 'cluster_label_map', None) and int(cluster_id) in self.cluster_label_map:
+                return self.cluster_label_map[int(cluster_id)]
+        except Exception:
+            pass
+
         # Prefer human-friendly labels when available. ROLE_LABELS entries may
         # be either a string (legacy) or a dict with a 'label' key (preferred).
         try:
