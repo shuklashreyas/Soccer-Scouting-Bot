@@ -13,90 +13,28 @@ from sklearn.metrics.pairwise import cosine_similarity
 # -------------------------------
 
 # These are "candidate" features. We only keep the ones present in the DF.
+# -------------------------------
+#  CONFIG: FEATURE GROUPS
+# -------------------------------
+
+# Z-score features from z_scores.csv
 CANDIDATE_FEATURE_GROUPS = {
-    "attacking": [
-        "Performance_Gls",
-        "Performance_Ast",
-        "Per 90 Minutes_Gls",
-        "Per 90 Minutes_Ast",
-        "Per 90 Minutes_G+A",
-        "Per 90 Minutes_G-PK",
-        "Per 90 Minutes_xG",
-        "Per 90 Minutes_xAG",
-        "Per 90 Minutes_xG+xAG",
-        "Per 90 Minutes_npxG",
-        "Per 90 Minutes_npxG+xAG",
-        "Expected_xG",
-        "Expected_npxG",
-        "Expected_xAG",
-        "Expected_npxG+xAG",
-        "SCA_SCA",                  # shot-creating actions (if present)
-        "GCA_GCA",                  # goal-creating actions (if present)
-    ],
-    "possession_progression": [
-        "Progression_PrgC",
-        "Progression_PrgP",
-        "Progression_PrgR",
-        "Touches_Att 3rd",          # attacking third touches (if present)
-        "Touches_Att Pen",          # penalty box touches
-        "Carries_CPA",              # carries into penalty area
-        "Carries_C 3rd",            # carries into final third
-    ],
-    "passing": [
-        "Passing_Cmp%",             # pass completion %
-        "Passing_TotDist",
-        "Passing_PrgDist",
-        "Passing_1/3",              # passes into final third
-        "Passing_PPA",              # passes into penalty area
-        "Passing_KP",               # key passes
-    ],
-    "defending": [
-        "Tackles_Tkl",
-        "Tackles_Def 3rd",
-        "Tackles_Mid 3rd",
-        "Tackles_Att 3rd",
-        "Blocks_Blocks",
-        "Blocks_Sh",
-        "Blocks_ShSv",
-        "Int",                      # interceptions
-        "Clr",                      # clearances
-        "Aerial Duels_Won",
-        "Aerial Duels_Won%",        # aerial %
-    ],
-    "game_time": [
-        "Playing Time_MP",
-        "Playing Time_Starts",
-        "Playing Time_Min",
-        "Playing Time_90s",
-    ],
+    "shooting": ["Shooting_Score"],
+    "dribbling": ["Dribbling_Score"],
+    "passing": ["Passing_Score"],
+    "creation": ["Creation_Score"],
+    "carrying": ["Carrying_Score"],
+    "defending": ["Defending_Score"],
 }
 
 # Optional: human readable names for explanation
 FRIENDLY_NAMES = {
-    "Performance_Gls": "Goals",
-    "Performance_Ast": "Assists",
-    "Per 90 Minutes_Gls": "Goals per 90",
-    "Per 90 Minutes_Ast": "Assists per 90",
-    "Per 90 Minutes_G+A": "Goals + Assists per 90",
-    "Per 90 Minutes_G-PK": "Non-penalty goals per 90",
-    "Per 90 Minutes_xG": "xG per 90",
-    "Per 90 Minutes_xAG": "xAG per 90",
-    "Per 90 Minutes_xG+xAG": "xG+xAG per 90",
-    "Per 90 Minutes_npxG": "Non-penalty xG per 90",
-    "Per 90 Minutes_npxG+xAG": "Non-penalty xG + xAG per 90",
-    "Expected_xG": "Total xG",
-    "Expected_xAG": "Total xAG",
-    "Progression_PrgC": "Progressive carries",
-    "Progression_PrgP": "Progressive passes",
-    "Progression_PrgR": "Progressive receptions",
-    "Touches_Att 3rd": "Attacking third touches",
-    "Touches_Att Pen": "Penalty box touches",
-    "Carries_CPA": "Carries into penalty area",
-    "Carries_C 3rd": "Carries into final third",
-    "Passing_KP": "Key passes",
-    "Passing_PPA": "Passes into penalty area",
-    "Aerial Duels_Won": "Aerial duels won",
-    "Aerial Duels_Won%": "Aerial win %"
+    "Shooting_Score": "Shooting",
+    "Dribbling_Score": "Dribbling",
+    "Passing_Score": "Passing",
+    "Creation_Score": "Chance Creation",
+    "Carrying_Score": "Ball Carrying",
+    "Defending_Score": "Defending",
 }
 
 # Human-readable cluster labels and detailed role metadata.
@@ -336,6 +274,7 @@ class PlayerEmbeddingModel:
         Returns dataframe with columns:
         [Player, Squad (if available), Pos (if available),
          similarity, role_cluster, role_label]
+        Only returns players who share at least one position with the target player.
         """
         idx = self._match_player_index(player_name)
         if idx is None:
@@ -344,13 +283,56 @@ class PlayerEmbeddingModel:
         target_vec = self.embeddings[idx].reshape(1, -1)
         sims = cosine_similarity(target_vec, self.embeddings)[0]
 
-        # sort by similarity (descending) and skip self
-        order = np.argsort(sims)[::-1]
-        order = [i for i in order if i != idx][:top_k]
+        # Get target player's position(s)
+        target_pos = None
+        if self.pos_col and self.pos_col in self.df.columns:
+            target_pos = str(self.df.iloc[idx][self.pos_col])
 
-        out = self.df.iloc[order].copy()
-        out["similarity"] = sims[order]
-        out["role_cluster"] = self.role_labels[order]
+        # Helper function to check if positions overlap
+        def positions_match(pos1, pos2):
+            """Check if two position strings share at least one position."""
+            if pd.isna(pos1) or pd.isna(pos2):
+                return True  # If position data missing, include player
+
+            # Split positions (e.g., "FW,MF" or "DF" or "MF,FW,DF")
+            pos1_set = set(str(pos1).upper().replace(' ', '').split(','))
+            pos2_set = set(str(pos2).upper().replace(' ', '').split(','))
+
+            return len(pos1_set & pos2_set) > 0  # True if any position matches
+
+        # Sort by similarity (descending) and filter by position
+        order = np.argsort(sims)[::-1]
+
+        # Filter candidates: skip self and filter by position
+        candidates = []
+        for i in order:
+            if i == idx:  # Skip the target player
+                continue
+
+            # Check position match
+            if target_pos is not None:
+                candidate_pos = self.df.iloc[i][self.pos_col] if self.pos_col in self.df.columns else None
+                if not positions_match(target_pos, candidate_pos):
+                    continue  # Skip if positions don't match
+
+            candidates.append(i)
+
+            if len(candidates) >= top_k:
+                break
+
+        # If we don't have enough candidates after filtering, relax the constraint
+        if len(candidates) < top_k:
+            # Add more candidates without position filter
+            for i in order:
+                if i == idx or i in candidates:
+                    continue
+                candidates.append(i)
+                if len(candidates) >= top_k:
+                    break
+
+        out = self.df.iloc[candidates].copy()
+        out["similarity"] = sims[candidates]
+        out["role_cluster"] = self.role_labels[candidates]
         out["role_label"] = out["role_cluster"].apply(self._cluster_name)
 
         cols = ["Player"]

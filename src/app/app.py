@@ -3,9 +3,10 @@ import pandas as pd
 import pickle
 import sys
 from pathlib import Path
-import numpy as np
-import plotly.graph_objects as go
 import uuid
+import io
+import matplotlib.pyplot as plt
+
 
 # ======================================
 # FIX MODULE PATHS
@@ -22,6 +23,7 @@ from src.player.lookup import lookup_player
 from src.player.extract import extract_player_profile
 from src.player.roles import classify_role
 from src.player.insights import generate_strengths_weaknesses, ordinal
+from src.visualization.radar_chart import plot_radar
 
 
 # ======================================
@@ -29,9 +31,25 @@ from src.player.insights import generate_strengths_weaknesses, ordinal
 # ======================================
 @st.cache_data
 def load_data():
-    df_path = "data/processed/all_leagues_clean.csv"
+    # Load z_scores for similarity calculations
+    z_scores_path = "data/processed/z_scores.csv"
+    z_scores_df = pd.read_csv(z_scores_path)
 
-    df = pd.read_csv(df_path)
+    # Load all_leagues_clean for basic player stats
+    all_leagues_path = "data/processed/all_leagues_clean.csv"
+    all_leagues_df = pd.read_csv(all_leagues_path)
+
+    # Load outfield_clean for detailed radar chart stats
+    outfield_path = "data/processed/outfield_clean.csv"
+    outfield_df = pd.read_csv(outfield_path)
+
+    # Merge all_leagues with z_scores on Player, Squad
+    df = all_leagues_df.merge(
+        z_scores_df[['Player', 'Squad', 'Shooting_Score', 'Dribbling_Score',
+                     'Passing_Score', 'Creation_Score', 'Carrying_Score', 'Defending_Score']],
+        on=['Player', 'Squad'],
+        how='left'
+    )
 
     players = df["Player"].dropna().unique().tolist()
     leagues = ["premier league", "la liga", "bundesliga", "serie a", "ligue 1"]
@@ -39,11 +57,10 @@ def load_data():
     # These stats names are used only for entity extraction
     stats = ["goals", "assists", "xg", "xa", "progressive passes", "ppa", "g+a"]
 
-    return df, players, leagues, stats
+    return df, outfield_df, players, leagues, stats
 
 
-df, players_list, league_list, stat_list = load_data()
-
+df, outfield_df, players_list, league_list, stat_list = load_data()
 
 # Cache a single embedding model instance so we don't rebuild it per query
 @st.cache_resource
@@ -103,7 +120,7 @@ try:
         if not st.session_state.get("_similarity_model_missing_shown"):
             st.session_state["_similarity_model_missing_shown"] = True
             st.warning(
-                "Similarity model not found — run `python src/modeling/train_similarity_model.py` to create `data/models/similarit                python3 src/modeling/debug_profiles.pyy_model.pkl`."
+                "Similarity model not found — run `python src/modeling/train_similarity_model.py` to create `data/models/similarity_model.pkl`."
             )
 except Exception:
     # If session_state isn't available yet (rare), skip the UI warning silently
@@ -154,6 +171,11 @@ if st.session_state.get("_deferred_charts"):
         unique_key = f"deferred_chart_{uuid.uuid4().hex}"
         st.plotly_chart(fig, use_container_width=True, key=unique_key)
 
+# Render any deferred matplotlib images (from plot_radar)
+if st.session_state.get("_deferred_images"):
+    for img_buf in st.session_state.pop("_deferred_images"):
+        st.image(img_buf, width=600)  # Fixed width in pixels (adjust as needed)
+
 
 # ===========================
 # INPUT FORM
@@ -186,7 +208,7 @@ with st.form("chat_form", clear_on_submit=True):
         # ---------------------------------------------------
         if intent == "player_stats":
             if len(entities["players"]) == 0:
-                response = "I couldn’t detect which player you mean."
+                response = "I couldn't detect which player you mean."
             else:
                 query_name = entities["players"][0]
 
@@ -226,14 +248,46 @@ with st.form("chat_form", clear_on_submit=True):
                                 except Exception:
                                     return v if v is not None else "N/A"
 
-                            goals = profile.stats.get('shooting', {}).get('goals', 'N/A')
-                            assists = profile.stats.get('assisting', {}).get('assists', 'N/A')
-                            xg = profile.stats.get('shooting', {}).get('xg', None)
-                            prg = profile.stats.get('progression', {}).get('prg_passes', 'N/A')
+
+                            def get_stat(row, *possible_names):
+                                """Try multiple column names and return first available value"""
+                                for name in possible_names:
+                                    val = row.get(name)
+                                    if val is not None and pd.notna(val):
+                                        return val
+                                return 'N/A'
+
+
+                            outfield_match = outfield_df[
+                                (outfield_df['Player'] == chosen) &
+                                (outfield_df['Squad'] == profile.squad)
+                                ]
+
+                            if outfield_match.empty:
+                                outfield_match = outfield_df[outfield_df['Player'] == chosen]
+
+                            if not outfield_match.empty:
+                                r_outfield = outfield_match.iloc[0]
+
+                                # Get stats from outfield_clean.csv instead of all_leagues_clean.csv
+                                goals = get_stat(r_outfield, 'Gls')
+                                assists = get_stat(r_outfield, 'Ast')
+                                xg = get_stat(r_outfield, 'xG', 'npxG')
+                                xa = get_stat(r_outfield, 'xAG')
+                                prg = get_stat(r_outfield, 'PrgP')
+                            else:
+                                # Fallback to all_leagues if not found in outfield
+                                goals = get_stat(r, 'Performance_Gls')
+                                assists = get_stat(r, 'Performance_Ast')
+                                xg = get_stat(r, 'Expected_xG')
+                                xa = get_stat(r, 'Expected_xAG')
+                                prg = get_stat(r, 'Progression_PrgP')
+
 
                             response_html = []
                             response_html.append(f"<div style='font-size:14px; line-height:1.4;'>")
-                            response_html.append(f"<strong style='font-size:16px;'>{chosen} — Key Stats & Profile</strong><br>")
+                            response_html.append(
+                                f"<strong style='font-size:16px;'>{chosen} — Key Stats & Profile</strong><br>")
                             response_html.append(f"<strong>Position:</strong> {profile.pos}  <br>")
                             response_html.append(f"<strong>Squad:</strong> {profile.squad}  <br>")
                             response_html.append(f"<strong>Role:</strong> {role_label}  <br>")
@@ -241,7 +295,8 @@ with st.form("chat_form", clear_on_submit=True):
                                 "<div style='display:flex; gap:12px; flex-wrap:wrap; margin-top:6px;'>"
                                 + f"<div style='min-width:84px;'><strong>Goals:</strong> {goals}</div>"
                                 + f"<div style='min-width:100px;'><strong>Assists:</strong> {assists}</div>"
-                                + f"<div style='min-width:84px;'><strong>xG:</strong> {_fmt_num(xg,1)}</div>"
+                                + f"<div style='min-width:84px;'><strong>xG:</strong> {_fmt_num(xg, 1)}</div>"
+                                + f"<div style='min-width:84px;'><strong>xA:</strong> {_fmt_num(xa, 1)}</div>"
                                 + f"<div style='min-width:140px;'><strong>Progressive Passes:</strong> {prg}</div>"
                                 + "</div>"
                             )
@@ -270,165 +325,153 @@ with st.form("chat_form", clear_on_submit=True):
                             response_html.append("</div>")
                             response = "".join(response_html)
 
-                            # Build radar chart using previous logic: pick feature_cols_to_use
-                            # Prefer trained feature_cols if available
-                            if feature_cols is not None:
-                                trained_cols = [c for c in feature_cols if c in df.columns]
-                                if len(trained_cols) >= 2:
-                                    feature_cols_to_use = trained_cols
-                                else:
-                                    feature_cols_to_use = [c for c in [
-                                        "Per_90_Minutes_xG", "Per_90_Minutes_xAG", "Progression_PrgP", "Playing_Time_90s",
-                                    ] if c in df.columns]
+                            # ===== BUILD RADAR CHART USING plot_radar from radar_chart.py =====
+                            # Define position-specific feature sets from outfield_clean.csv with display names
+                            defense_features = {
+                                'Tackles_Tkl': 'Tackles',
+                                'Tackles_TklW': 'Tackles Won',
+                                'Challenges_Att': 'Challenges Attempted',
+                                'Challenges_Tkl%': 'Challenges Won %',
+                                'Blocks_Blocks': 'Blocks',
+                                'Int': 'Interceptions',
+                                'Clr': 'Clearances',
+                                'Att': 'Passes Attempted',
+                                'Cmp%': 'Pass Completion %',
+                                'PrgP': 'Progressive Passes',
+                                'PrgC': 'Progressive Carries',
+                            }
+
+                            midfield_features = {
+                                'Gls': 'Goals',
+                                'xG': 'xG',
+                                'Ast': 'Assists',
+                                'xAG': 'xA',
+                                'Att': 'Passes Attempted',
+                                'Cmp%': 'Pass Completion %',
+                                'PrgP': 'Progressive Passes',
+                                'PrgC': 'Progressive Carries',
+                                'PPA': 'PPA',
+                                'Carries_CPA': 'CPA',
+                                'KP': 'Key Passes',
+                                'Challenges_Att': 'Challenges Attempted',
+                                'Challenges_Tkl%': 'Challenges Won %',
+                                'Take-Ons_Att': 'Dribbles Attempted',
+                                'Take-Ons_Succ%': 'Dribble Success %'
+                            }
+
+                            forward_features = {
+                                'Gls': 'Goals',
+                                'xG': 'xG',
+                                'Ast': 'Assists',
+                                'xAG': 'xA',
+                                'Att': 'Passes Attempted',
+                                'Cmp%': 'Pass Completion %',
+                                'PrgP': 'Progressive Passes',
+                                'PrgC': 'Progressive Carries',
+                                'PPA': 'PPA',
+                                'Carries_CPA': 'CPA',
+                                'KP': 'Key Passes',
+                                'Take-Ons_Att': 'Dribbles Attempted',
+                                'Take-Ons_Succ%': 'Dribble Success %'
+                            }
+
+                            # Determine position string from profile
+                            pos = str(profile.pos).upper() if getattr(profile, 'pos', None) else ""
+                            if "GK" in pos or pos.startswith("GK"):
+                                preferred = {'Playing_Time_90s': '90s Played', 'Performance_CrdY': 'Yellow Cards'}
+                            elif any(p in pos for p in ["DF", "D", "CB", "LB", "RB", "WB"]):
+                                preferred = defense_features
+                            elif any(p in pos for p in ["MF", "M", "CM", "AM", "DM", "CDM", "CAM"]):
+                                preferred = midfield_features
+                            elif any(p in pos for p in ["FW", "F", "ST", "CF", "W", "LW", "RW", "ATT"]):
+                                preferred = forward_features
                             else:
-                                feature_cols_to_use = [c for c in [
-                                    "Per_90_Minutes_xG", "Per_90_Minutes_xAG", "Progression_PrgP", "Playing_Time_90s",
-                                ] if c in df.columns]
+                                preferred = midfield_features
 
-                            # Fallback
-                            if len(feature_cols_to_use) < 3:
-                                feature_cols_to_use = [c for c in ["Per_90_Minutes_xG", "Per_90_Minutes_xAG", "Per_90_Minutes_Gls"] if c in df.columns]
+                            # Get available features and their display names
+                            available_features = {}
+                            for col_name, display_name in preferred.items():
+                                if col_name in outfield_df.columns:
+                                    available_features[col_name] = display_name
 
-                            if feature_cols_to_use:
+                            # Need at least 3 features for radar
+                            if len(available_features) < 3:
+                                fallback = {
+                                    'Performance_Gls': 'Goals',
+                                    'Performance_Ast': 'Assists',
+                                    'Expected_xG': 'xG',
+                                    'Expected_xAG': 'xA',
+                                    'Progression_PrgP': 'Progressive Passes'
+                                }
+                                available_features = {k: v for k, v in fallback.items() if k in outfield_df.columns}
+
+                            # Render radar chart using plot_radar
+                            if len(available_features) >= 3:
                                 try:
-                                    df_feats = df[feature_cols_to_use].fillna(0).astype(float)
-                                    player_vals = []
-                                    for c in feature_cols_to_use:
-                                        v = r.get(c, 0)
-                                        try:
-                                            player_vals.append(float(v) if pd.notna(v) else 0.0)
-                                        except Exception:
-                                            player_vals.append(0.0)
+                                    feature_cols = list(available_features.keys())
+                                    display_names = list(available_features.values())
 
-                                    mins = df_feats.min()
-                                    maxs = df_feats.max()
+                                    df_feats = outfield_df[feature_cols].fillna(0).astype(float)
 
-                                    norm_player = []
-                                    norm_avg = []
-                                    for i, c in enumerate(feature_cols_to_use):
-                                        lo = mins[c]
-                                        hi = maxs[c]
-                                        if hi == lo:
-                                            p_norm = 50.0
-                                            a_norm = 50.0
-                                        else:
-                                            p_norm = 100.0 * (player_vals[i] - lo) / (hi - lo)
-                                            a_norm = 100.0 * (df_feats[c].mean() - lo) / (hi - lo)
-                                        norm_player.append(max(0, min(100, p_norm)))
-                                        norm_avg.append(max(0, min(100, a_norm)))
+                                    # Find matching player in outfield_df
+                                    outfield_match = outfield_df[
+                                        (outfield_df['Player'] == chosen) &
+                                        (outfield_df['Squad'] == profile.squad)
+                                        ]
 
-                                    labels = [c.replace("_", " ") for c in feature_cols_to_use]
-                                    fig = go.Figure()
-                                    fig.add_trace(go.Scatterpolar(r=norm_avg + [norm_avg[0]], theta=labels + [labels[0]], fill='toself', name='League avg', line=dict(color='rgba(200,200,200,0.6)')))
-                                    fig.add_trace(go.Scatterpolar(r=norm_player + [norm_player[0]], theta=labels + [labels[0]], fill='toself', name=chosen, line=dict(color='#0f766e')))
-                                    fig.update_layout(
-                                        polar=dict(radialaxis=dict(visible=True, range=[0,100], tickfont=dict(size=10)), bgcolor='rgba(0,0,0,0)'),
-                                        showlegend=True,
-                                        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
-                                        margin=dict(l=10, r=10, t=20, b=10),
-                                    )
-                                    st.session_state.setdefault("_deferred_charts", []).append(fig)
+                                    if outfield_match.empty:
+                                        outfield_match = outfield_df[outfield_df['Player'] == chosen]
+
+                                    if not outfield_match.empty:
+                                        r_outfield = outfield_match.iloc[0]
+
+                                        player_vals = []
+                                        for c in feature_cols:
+                                            val = r_outfield.get(c, 0)
+                                            try:
+                                                player_vals.append(float(val) if pd.notna(val) else 0.0)
+                                            except Exception:
+                                                player_vals.append(0.0)
+
+                                        # Calculate percentile ranks (0-100 scale)
+                                        norm_player = []
+                                        for i, c in enumerate(feature_cols):
+                                            # Get all values for this feature
+                                            all_values = df_feats[c]
+                                            player_value = player_vals[i]
+
+                                            # Calculate percentile rank
+                                            percentile = (all_values < player_value).sum() / len(all_values) * 100
+
+                                            norm_player.append(int(percentile))
+
+                                        # Create dataframe for plot_radar
+                                        radar_dict = {}
+                                        for i, display_name in enumerate(display_names):
+                                            radar_dict[display_name] = norm_player[i]
+                                        radar_data = pd.DataFrame([radar_dict])
+                                        radar_data['player'] = chosen
+                                        radar_data['team'] = profile.squad if hasattr(profile, 'squad') else 'Unknown'
+
+                                        # Call plot_radar with display_names as the cols parameter
+                                        plot_radar(radar_data, display_names, df2=None)
+
+                                        # Get the current figure
+                                        fig = plt.gcf()
+
+                                        # Convert to image
+                                        buf = io.BytesIO()
+                                        fig.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor='white')
+                                        buf.seek(0)
+                                        plt.close(fig)
+
+                                        # Queue for display
+                                        st.session_state.setdefault("_deferred_images", []).append(buf)
+
                                 except Exception as e:
-                                    response += f"\n\n(Note: could not render radar chart: {e})"
+                                    import traceback
 
-                    attack_features = [
-                        "Per_90_Minutes_xG",
-                        "Per_90_Minutes_xAG",
-                        "Per_90_Minutes_Gls",
-                        "Per_90_Minutes_Ast",
-                        "Progression_PrgP",
-                    ]
-                    mid_features = [
-                        "Per_90_Minutes_xG",
-                        "Per_90_Minutes_xAG",
-                        "Per_90_Minutes_Ast",
-                        "Per_90_Minutes_G+A",
-                        "Progression_PrgP",
-                    ]
-                    def_features = [
-                        "Progression_PrgP",
-                        "Progression_PrgC",
-                        "Per_90_Minutes_xG",
-                        "Per_90_Minutes_xAG",
-                        "Per_90_Minutes_G+A",
-                    ]
-                    gk_features = [
-                        "Playing_Time_90s",
-                        "Performance_CrdY",
-                    ]
-
-                    # determine position string from profile
-                    pos = str(profile.pos).upper() if getattr(profile, 'pos', None) else ""
-                    if "GK" in pos or pos.startswith("GK"):
-                        preferred = gk_features
-                    elif any(p in pos for p in ["F", "FW", "ST", "CF", "W"]):
-                        preferred = attack_features
-                    elif any(p in pos for p in ["M", "CM", "AM", "DM"]):
-                        preferred = mid_features
-                    else:
-                        preferred = def_features
-
-                    # Prefer trained feature columns from pickle when available
-                    if feature_cols is not None:
-                        trained_cols = [c for c in feature_cols if c in df.columns]
-                        if len(trained_cols) >= 2:
-                            feature_cols_to_use = trained_cols
-                        else:
-                            feature_cols_to_use = [c for c in preferred if c in df.columns]
-                    else:
-                        feature_cols_to_use = [c for c in preferred if c in df.columns]
-
-                    # Fallback generic set
-                    if len(feature_cols_to_use) < 3:
-                        fallback = [
-                            "Per_90_Minutes_xG",
-                            "Per_90_Minutes_xAG",
-                            "Progression_PrgP",
-                            "Per_90_Minutes_Gls",
-                        ]
-                        feature_cols_to_use = [c for c in fallback if c in df.columns]
-
-                    # Render radar chart comparing player to dataset average
-                    if feature_cols_to_use:
-                        try:
-                            df_feats = df[feature_cols_to_use].fillna(0).astype(float)
-
-                            player_vals = []
-                            for c in feature_cols_to_use:
-                                val = r.get(c, 0)
-                                try:
-                                    player_vals.append(float(val) if pd.notna(val) else 0.0)
-                                except Exception:
-                                    player_vals.append(0.0)
-
-                            mins = df_feats.min()
-                            maxs = df_feats.max()
-
-                            norm_player = []
-                            norm_avg = []
-                            for i, c in enumerate(feature_cols_to_use):
-                                lo = mins[c]
-                                hi = maxs[c]
-                                if hi == lo:
-                                    p_norm = 50.0
-                                    a_norm = 50.0
-                                else:
-                                    p_norm = 100.0 * (player_vals[i] - lo) / (hi - lo)
-                                    a_norm = 100.0 * (df_feats[c].mean() - lo) / (hi - lo)
-                                norm_player.append(max(0, min(100, p_norm)))
-                                norm_avg.append(max(0, min(100, a_norm)))
-
-                            labels = [c.replace("_", " ") for c in feature_cols_to_use]
-
-                            fig = go.Figure()
-                            fig.add_trace(go.Scatterpolar(r=norm_avg + [norm_avg[0]], theta=labels + [labels[0]], fill='toself', name='League avg', line=dict(color='rgba(200,200,200,0.6)')))
-                            fig.add_trace(go.Scatterpolar(r=norm_player + [norm_player[0]], theta=labels + [labels[0]], fill='toself', name=chosen, line=dict(color='#0f766e')))
-                            fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0,100])), showlegend=True, margin=dict(l=20,r=20,t=30,b=20))
-
-                            # queue chart for rendering after messages
-                            st.session_state.setdefault("_deferred_charts", []).append(fig)
-                        except Exception as e:
-                            response += f"\n\n(Note: could not render radar chart: {e})"
+                                    response += f"\n\n(Note: could not render radar chart: {e})\n{traceback.format_exc()}"
 
         # ---------------------------------------------------
         # COMPARE PLAYERS
