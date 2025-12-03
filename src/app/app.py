@@ -747,12 +747,43 @@ with st.form("chat_form", clear_on_submit=True):
                             squad = row.get("Squad", "") if "Squad" in row.index else ""
                             pos = row.get(model.pos_col, "") if model.pos_col and model.pos_col in row.index else ""
                             score = row.get("similarity", None)
-                            score_label = f"{score*100:.0f}%" if isinstance(score, (float, int)) else ""
+                            # Show one decimal place to avoid rounding near-100% misleading outputs
+                            score_label = f"{score*100:.1f}%" if isinstance(score, (float, int)) else ""
                             meta = " • ".join([p for p in [pos, squad] if p])
                             meta_label = f"<span style='font-size:13px; color:inherit; opacity:0.9;'>{score_label}{(' • ' + meta) if meta else ''}</span>"
                             response_html.append(f"<li style='margin-bottom:8px; color:inherit;'><span style='font-size:15px; font-weight:600;'>{name}</span> {meta_label}</li>")
 
                         response_html.append("</ul>")
+
+                        # Also show the three least similar players (global lowest cosine similarity)
+                        try:
+                            from sklearn.metrics.pairwise import cosine_similarity
+                            import numpy as _np
+
+                            tidx = model._match_player_index(target)
+                            sims_all = cosine_similarity(model.embeddings[tidx].reshape(1, -1), model.embeddings)[0]
+                            asc = _np.argsort(sims_all)  # ascending (least similar first)
+
+                            response_html.append("<div style='margin-top:8px;'><strong>Least similar players:</strong></div>")
+                            response_html.append("<ul style='margin:6px 0 6px 18px;'>")
+                            count = 0
+                            for ii in asc:
+                                if ii == tidx:
+                                    continue
+                                name_l = model.df.iloc[ii]["Player"]
+                                squad_l = model.df.iloc[ii]["Squad"] if "Squad" in model.df.columns else ""
+                                pos_l = model.df.iloc[ii][model.pos_col] if model.pos_col and model.pos_col in model.df.columns else ""
+                                score_l = sims_all[ii]
+                                score_label_l = f"{score_l*100:.1f}%"
+                                meta_l = " • ".join([p for p in [pos_l, squad_l] if p])
+                                response_html.append(f"<li style='margin-bottom:8px; color:inherit;'><span style='font-size:15px; font-weight:600;'>{name_l}</span> <span style='font-size:13px; color:inherit; opacity:0.9;'>{score_label_l}{(' • ' + meta_l) if meta_l else ''}</span></li>")
+                                count += 1
+                                if count >= 3:
+                                    break
+                            response_html.append("</ul>")
+                        except Exception:
+                            # If anything goes wrong computing global similarities, skip silently
+                            pass
 
                         # Add explanation vs top match
                         if not sims_df.empty:
