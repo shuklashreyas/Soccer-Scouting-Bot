@@ -9,3 +9,7 @@ streamlit
 lxml
 html5lib
 rapidfuzz
+matplotlib
+plotly
+mplsoccer
+kaleido
