@@ -18,12 +18,20 @@ if str(ROOT) not in sys.path:
 # Your modules
 from src.nlp.intent_classifier import predict_intent
 from src.nlp.entity_extraction import extract_entities
-from src.modeling.similarity import find_similar_players, ROLE_LABELS
+from src.modeling.similarity import find_similar_players, ROLE_LABELS, FRIENDLY_NAMES
 from src.player.lookup import lookup_player
 from src.player.extract import extract_player_profile
 from src.player.roles import classify_role
 from src.player.insights import generate_strengths_weaknesses, ordinal
 from src.visualization.radar_chart import plot_radar
+from src.visualization.cluster_plots import (
+    plot_pca_scatter,
+    cluster_size_bar,
+    cluster_centroid_radar,
+    compare_z_bar,
+    similarity_heatmap,
+    cluster_feature_violin,
+)
 
 
 # ======================================
@@ -162,6 +170,79 @@ with st.expander("Cluster Explorer (show role clusters and sample members)"):
                 # show small sample table
                 sample = members[['Player']].head(12)
                 st.table(sample)
+
+            # --- Cluster visuals ---
+            try:
+                st.markdown("---")
+                st.subheader("Model Visualizations")
+                # PCA scatter + cluster size side-by-side
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    try:
+                        fig = plot_pca_scatter(model)
+                        st.plotly_chart(fig, use_container_width=True)
+                    except Exception as e:
+                        st.warning(f"Could not render PCA scatter: {e}")
+                with col2:
+                    try:
+                        fig2 = cluster_size_bar(model)
+                        st.plotly_chart(fig2, use_container_width=True)
+                    except Exception as e:
+                        st.warning(f"Could not render cluster size bar: {e}")
+
+                # Cluster centroid radar selector
+                st.markdown("---")
+                st.subheader("Cluster Centroid Radar")
+                try:
+                    sel = st.selectbox("Select cluster to view centroid radar", clusters, format_func=lambda x: f"{x} — {model._cluster_name(int(x))}")
+                    fig3 = cluster_centroid_radar(model, int(sel))
+                    st.plotly_chart(fig3, use_container_width=True)
+                except Exception as e:
+                    st.warning(f"Could not render centroid radar: {e}")
+
+                # Pairwise z-score compare
+                st.markdown("---")
+                st.subheader("Pairwise Z-score Comparison")
+                try:
+                    players = model.df['Player'].dropna().unique().tolist()
+                    p1 = st.selectbox("Player A", players, index=0)
+                    p2 = st.selectbox("Player B", players, index=1)
+                    if st.button("Render comparison chart"):
+                        try:
+                            fig4 = compare_z_bar(model, p1, p2)
+                            st.plotly_chart(fig4, use_container_width=True)
+                        except Exception as e:
+                            st.warning(f"Could not render pairwise chart: {e}")
+                except Exception as e:
+                    st.warning(f"Could not render pairwise comparison UI: {e}")
+
+                # Similarity heatmap
+                st.markdown("---")
+                st.subheader("Similarity Heatmap")
+                try:
+                    target_for_heat = st.selectbox("Choose player for top-K similarity heatmap", players, index=0, key='heat_player')
+                    topk = st.slider("Top K", min_value=3, max_value=20, value=8)
+                    if st.button("Render similarity heatmap"):
+                        sims_df = model.get_similar_players(target_for_heat, top_k=topk)
+                        names = [target_for_heat] + sims_df['Player'].tolist()
+                        fig5 = similarity_heatmap(model, names)
+                        st.plotly_chart(fig5, use_container_width=True)
+                except Exception as e:
+                    st.warning(f"Could not render similarity heatmap: {e}")
+
+                # Feature violin selector
+                st.markdown("---")
+                st.subheader("Feature Distribution by Cluster")
+                try:
+                    feat = st.selectbox("Feature", model.feature_cols, format_func=lambda x: FRIENDLY_NAMES.get(x, x))
+                    fig6 = cluster_feature_violin(model, feat)
+                    st.plotly_chart(fig6, use_container_width=True)
+                except Exception as e:
+                    st.warning(f"Could not render feature violin: {e}")
+
+            except Exception:
+                # keep UI stable if visual modules fail
+                pass
     except Exception as e:
         st.warning(f"Could not display clusters: {e}")
 
