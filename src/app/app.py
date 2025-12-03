@@ -228,6 +228,17 @@ if st.session_state.get("_deferred_images"):
         st.image(img_buf, width=600)  # Fixed width in pixels (adjust as needed)
 
 
+# If a scouting report was generated for the last query, render it as its own
+# expandable panel so it appears with a clear "Scouting Report" identifier.
+if st.session_state.get("_last_scout"):
+    try:
+        with st.expander("Scouting Report", expanded=False):
+            st.markdown(st.session_state.pop("_last_scout"), unsafe_allow_html=True)
+    except Exception:
+        # If rendering fails for any reason, remove it to avoid persistent state issues
+        _ = st.session_state.pop("_last_scout", None)
+
+
 # ===========================
 # INPUT FORM
 # ===========================
@@ -523,6 +534,23 @@ with st.form("chat_form", clear_on_submit=True):
                                     import traceback
 
                                     response += f"\n\n(Note: could not render radar chart: {e})\n{traceback.format_exc()}"
+
+                                # Attempt to generate a scouting report and store it
+                                try:
+                                    model = get_embedding_model()
+                                    if model is not None:
+                                        try:
+                                            from src.modeling.scouting import generate_scouting_report
+
+                                            scout_html = generate_scouting_report(model, chosen, top_k=6)
+                                            # Store scouting HTML as its own identifier in session state
+                                            st.session_state["_last_scout"] = scout_html
+                                        except Exception:
+                                            # non-fatal: skip scouting if it errors
+                                            pass
+                                except Exception:
+                                    # ignore errors getting the model
+                                    pass
 
         # ---------------------------------------------------
         # COMPARE PLAYERS
