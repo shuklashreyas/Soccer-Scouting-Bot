@@ -1,15 +1,15 @@
-beautifulsoup4
-requests
+# Minimal requirements generated from code import analysis
 pandas
 numpy
 scikit-learn
-nltk
-spacy
-streamlit
-lxml
-html5lib
-rapidfuzz
+scipy
 matplotlib
-plotly
 mplsoccer
-kaleido
+plotly
+streamlit
+beautifulsoup4
+requests
+rapidfuzz
+reus
+selenium
+pytest
