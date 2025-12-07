@@ -199,8 +199,6 @@ If you hit errors, paste the stack trace into an issue and include your environm
   3. Add tests where appropriate
   4. Submit a PR with a clear description
 
-Please follow existing code style and keep comments focused and minimal.
-
 ---
 
 ## Authors
@@ -215,9 +213,10 @@ Please follow existing code style and keep comments focused and minimal.
 
 ## Our Paper (ACL)
 
-We published an accompanying paper for ACL. See the PDF in the repository:
+We published an accompanying paper for ACL. You can download or view the PDF here:
 
-- `ACL_SoccerScouting.pdf`
+- [ACL_SoccerScouting.pdf](./ACL_SoccerScouting.pdf)
+- View on Google Drive: https://drive.google.com/file/d/17MdqpLidDJT2ct3um5GRpojom0juxcyq/view?usp=sharing
 
 ## License & Acknowledgements
 
