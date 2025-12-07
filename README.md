@@ -1,216 +1,230 @@
-**Soccer-Scouting-Bot**
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Streamlit](https://img.shields.io/badge/Streamlit-app-orange)](https://streamlit.io)
 
-A conversational soccer scouting assistant built in Python with a Streamlit front-end. It helps analysts and scouts discover player profiles, find similar playing styles, run role-aware player comparisons, and generate short automated scouting reports using FBref-derived event statistics.
+# Soccer-Scouting-Bot
 
-**Project Overview**
-- **What it does:** Provides an interactive chat-style UI to lookup players, run similarity searches, perform role-aware comparisons, and produce short scouting reports.
-- **Key capabilities:**
-	- Player lookups with fuzzy matching and metadata extraction
-	- Embedding-based similarity search (StandardScaler → PCA → KMeans → cosine similarity)
-	- Frozen cluster labels that describe tactical role archetypes
-	- Role-aware comparison engine that applies a role sanity-check before comparing stats
-	- Automated hunting of strengths / weaknesses and short scouting reports
-	- Conversational NLP surface: entity extraction + intent classification to map natural queries to actions
+A concise, conversational scouting assistant for football (soccer) that
+helps analysts quickly lookup players, find similar profiles, run
+role-aware comparisons, and generate short scouting reports.
 
-**Features**
-- **Player profiles & radar charts:** compact profile cards with percentile-style radar visualizations.
-- **Similarity engine:** embedding pipeline and nearest-neighbor ranking for players with explanation support.
-- **Comparison engine:** role-aware comparisons that prefer role-based context over naive stat comparisons.
-- **Scouting report generator:** short HTML/markdown reports summarizing role, strengths, weaknesses, and comparables.
-- **NLP pipeline:** lightweight entity extraction and layered intent classifier (pattern + weighted-keywords + optional ML fallback).
-- **Admin tooling:** UI and CLI utilities for editing and freezing cluster label mappings (`src/app/admin_clusters.py`, `src/modeling/freeze_clusters.py`).
-- **Graceful fallbacks:** app runs with limited features when optional models are missing (training & heavy deps are optional).
+## Table of Contents
+- [Soccer-Scouting-Bot](#soccer-scouting-bot)
+	- [Table of Contents](#table-of-contents)
+	- [Demo / Quick Start](#demo--quick-start)
+	- [Features](#features)
+	- [Why This Project?](#why-this-project)
+	- [Prerequisites](#prerequisites)
+	- [Installation](#installation)
+	- [Usage](#usage)
+	- [Technical Details](#technical-details)
+		- [Data \& Feature Engineering](#data--feature-engineering)
+		- [Embedding Model](#embedding-model)
+		- [Similarity \& Comparison](#similarity--comparison)
+		- [Radar Charts \& Visuals](#radar-charts--visuals)
+	- [Frontend (Screenshots)](#frontend-screenshots)
+	- [Limitations \& Next Steps](#limitations--next-steps)
+	- [Troubleshooting](#troubleshooting)
+	- [Contributing](#contributing)
+	- [Authors](#authors)
+	- [Our Paper (ACL)](#our-paper-acl)
+	- [License \& Acknowledgements](#license--acknowledgements)
 
-**System Architecture**
+---
 
-- Data pipeline: raw FBref scrapers → cleaned CSVs under `data/processed/` → per-feature z-scores → model training
-- Embedding pipeline: select numeric features → `StandardScaler` → `PCA` to produce dense embeddings → `KMeans` (role clusters)
-- Runtime components:
-	- Similarity + explanation: cosine similarity on embeddings + feature-wise z-score analysis
-	- Comparison engine: role-sanity check → feature-level contrasts → textual summary
-	- Scouting generator: collates metadata, strengths/weaknesses, comparable players and renders markdown/HTML
-- UI: Streamlit app at `src/app/app.py` (main), `src/app/admin_clusters.py` (admin)
-- Persisted artifacts: `data/models/player_embedding_model.pkl` (embedding model), `data/models/similarity_model.pkl` (legacy scaler+knn)
+## Demo / Quick Start
 
-**Frontend**
-
-The Streamlit frontend (`src/app/app.py`) provides a conversational UI with several visual components. Below are screenshots and visual assets used in the app (files under the `images/` directory).
-
-- Chat & main UI (input, message bubbles, profile cards):
-
-	![App UI - chat & profile](images/ui1.png)
-
-- Alternate UI views and panels:
-
-	![App UI - view 2](images/ui2.png)
-	![App UI - view 3](images/ui3.png)
-	![App UI - view 4](images/ui4.png)
-
-- Cluster overview (KMeans clusters + sample members):
-
-	![Cluster overview](images/clusters.png)
-
-- Z-score distributions used for radar/feature normalization:
-
-	![Z-scores visualization](images/zscores.png)
-
-- Similarity / heatmap visual (top-k similarity matrix):
-
-	![Similarity heatmap](images/heatmap.png)
-
-- Feature similarity illustration used in explanations:
-
-	![Feature similarity example](images/featuresimilaity.png)
-
-Notes:
-- Images are included for quick reference in this README; they are stored in the repository under `images/`.
-- To replace screenshots, overwrite the corresponding `images/*.png` file and the README will render the updated image.
-
-**High-level Folder Tree (sample)**
-
-```
-/ (repo root)
-├─ data/
-│  ├─ processed/
-│  │  ├─ all_leagues_clean.csv
-│  │  ├─ outfield_clean.csv
-│  │  └─ z_scores.csv
-│  └─ models/
-│     ├─ player_embedding_model.pkl
-│     └─ similarity_model.pkl
-├─ src/
-│  ├─ app/
-│  │  ├─ app.py
-│  │  └─ admin_clusters.py
-│  ├─ modeling/
-│  │  ├─ similarity.py
-│  │  ├─ train_player_embedding.py
-+│  │  └─ compare.py
-│  ├─ nlp/
-│  │  ├─ entity_extraction.py
-│  │  └─ intent_classifier.py
-│  ├─ player/
-│  │  ├─ lookup.py
-│  │  └─ extract.py
-│  ├─ preprocessing/
-│  └─ scraping/
-└─ README.md
-```
-
-**Installation & Setup**
-
-1. Clone the repository:
+Run these three commands to try the app locally (project root):
 
 ```bash
 git clone https://github.com/shuklashreyas/Soccer-Scouting-Bot.git
 cd Soccer-Scouting-Bot
+pip install -r requirements.txt
+streamlit run src/app/app.py
 ```
 
-2. Create and activate a virtual environment (zsh):
+This should launch the Streamlit UI in your browser.
+
+Live working app: https://shuklashreyas-soccer-scouting-bot-srcappapp-jewwpm.streamlit.app/
+
+---
+
+## Features
+
+- Player lookup with fuzzy matching and metadata
+- Embedding-based similarity search (StandardScaler → PCA → KMeans → cosine similarity)
+- Frozen cluster labels describing tactical role archetypes
+- Role-aware comparison engine (role sanity-check + z-score contrasts)
+- Scouting report generator (HTML/markdown summaries)
+- Lightweight NLP: entity extraction + intent classification
+- Admin tools for editing and freezing cluster labels
+- Graceful fallbacks when optional models are missing
+
+---
+
+## Why This Project?
+
+- Problem: Analysts need a fast, interpretable way to find players and
+  compare profiles across leagues and roles without heavy tooling.
+- Target users: scouts, data analysts, coaches, and student researchers.
+- Value: combines interpretable statistics (z-scores, percentiles) with
+  compact explainable embeddings and conversational search.
+
+---
+
+## Prerequisites
+
+- Python 3.10 or newer
+- Optional: ChromeDriver (for Selenium scrapers)
+- Recommended: virtual environment (venv or Conda)
+
+---
+
+## Installation
+
+1. Clone repository (see Quick Start above)
+2. Create and activate a virtualenv
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 ```
 
-3. Install dependencies:
+3. Install Python deps
 
 ```bash
 pip install -r requirements.txt
 ```
 
-4. Run the Streamlit app (development):
+Notes:
+- If you will run scraping or training, ensure system BLAS/LAPACK and
+  appropriate drivers are installed for performance.
+
+---
+
+## Usage
+
+- Start the app:
 
 ```bash
 streamlit run src/app/app.py
 ```
 
-System notes
-- Recommended Python: 3.10+ (project tested against 3.10/3.11)
-- Optional system deps: ChromeDriver (for Selenium-based scrapers), and system BLAS/LAPACK for fast numpy/scipy builds if training locally.
+- In the UI, ask natural queries like:
+  - "Tell me about Erling Haaland"
+  - "Compare Gakpo and Saka"
+  - "Give me players similar to Declan Rice"
 
-**How the Model Works**
+- Quick tips:
+  - Use full or partial player names; the lookup is fuzzy.
+  - If models are missing the app will show informative warnings and
+    fall back to lighter-weight functions.
 
-- Feature engineering:
-	- Uses FBref-derived per-player statistics; where possible metrics are normalized to per-90 values and converted to numeric.
-	- A separate pre-processing step computes per-feature z-scores (see `data/processed/z_scores.csv`) used for similarity and cluster-level summaries.
+---
 
-- Embedding model (PlayerEmbeddingModel):
-	- Input: selected numeric feature columns (z-score style features preferred).
-	- Pipeline: `StandardScaler` → `PCA` to produce dense embeddings → `KMeans` to derive role cluster ids.
-	- Outputs: scaled X (`X_scaled`), embeddings, `role_labels`, and a `role_cluster` column written into the model's dataframe.
+## Technical Details
 
-- Role clusters & frozen labels:
-	- Clusters are grouped by unsupervised KMeans and can be annotated with human labels.
-	- Admin tools allow freezing these labels (so retrains won't change friendly names unexpectedly).
+### Data & Feature Engineering
 
-- Similarity search:
-	- Cosine similarity on embedding vectors; top-k neighbors returned.
-	- When an embedding model is not available, a legacy `scaler+knn` artifact (`similarity_model.pkl`) is supported.
+- Source: FBref event-level tables (scraped and cleaned → `data/processed/`)
+- Key transformations:
+  - Normalize counts to per-90 rates when appropriate
+  - Compute per-feature z-scores used for comparison and explanation
 
-- Comparison logic:
-	- A role-sanity check (`role_check.py`) decides whether a stat-wise comparison is fair or whether a role-oriented explanation is more appropriate.
-	- Numeric contrasts are computed in z-score space and summarized into human-friendly advantages/disadvantages.
+### Embedding Model
 
-- Radar charts:
-	- Per-feature percentile ranks are computed against the dataset and plotted as a 0–100 scale radar (mplsoccer).
+- Pipeline: `StandardScaler` → `PCA` (embeddings) → `KMeans` (role clusters)
+- Persisted model: `data/models/player_embedding_model.pkl`
+- Exposes: `X_scaled`, `embeddings`, `role_labels`, and `feature_cols`
 
-**NLP Module**
+### Similarity & Comparison
 
-- Entity extraction (`src/nlp/entity_extraction.py`): lightweight string matching to find player names, leagues, and stat keywords from a curated list.
-- Intent classification (`src/nlp/intent_classifier.py`): layered approach:
-	- Pattern rules for precise constructs ("A vs B", "players like X")
-	- Weighted-keyword scoring for broad intents (stats / compare / similar / league fit)
-	- Optional ML fallback: if pre-trained vectorizer + classifier artifacts exist under `data/models`, they are used.
+- Similarity: cosine similarity on PCA embeddings (top-k returned)
+- Comparison engine (`src/modeling/compare.py`):
+  - Role sanity-check to choose stat vs role comparison
+  - Computes z-score differences, overlap, and produces textual summary
 
-Query flow example
-- Query: "Find me players like Haaland"
-	- Entity extractor resolves `Haaland` → intent classifier returns `similar_players` → embedding similarity engine called → app renders top-k similar players plus a short role-style explanation.
+### Radar Charts & Visuals
 
-**Usage Examples**
+- Radar charts show per-feature percentiles (0–100) for a player vs dataset
+- Built with `mplsoccer` and rendered to images for Streamlit display
 
-- "Tell me about Erling Haaland"
-	- Returns a profile card with key stats, role label, strengths/weaknesses, and a radar chart of percentile features.
+---
 
-- "Compare Gakpo and Saka"
-	- Runs role-sanity check then shows a side-by-side table of core stats plus an NLP-style comparison paragraph and feature-by-feature contrasts.
+## Frontend (Screenshots)
 
-- "Give me players similar to Declan Rice"
-	- Returns a ranked list of similar players (top-k), with similarity scores and a short style/role summary.
+Key UI screenshots (kept minimal for clarity):
 
-**Admin Tools**
+![App UI - chat & profile](images/ui1.png)
+![Cluster overview](images/clusters.png)
+![Similarity heatmap](images/heatmap.png)
 
-- `src/app/admin_clusters.py` — Streamlit admin page to edit and persist human-friendly labels for clusters in a `player_embedding_model.pkl`.
-- `src/modeling/freeze_clusters.py` — CLI helpers to list clusters, export a JSON template, and apply a mapping to a saved model.
+Images are located in `images/`. Replace them by overwriting the PNG files.
 
-Workflow to update labels
-1. Launch `admin_clusters.py` via Streamlit or run `freeze_clusters.py template` to generate a JSON.
-2. Edit the JSON labels and either apply via the CLI or upload/save using the admin UI.
-3. Persisted mapping is saved inside the pickled model so label lookups are stable.
+---
 
-**Limitations**
+## Limitations & Next Steps
 
-- Data: only event-level FBref data is used (no tracking/positional event streams). This constrains some style assessments.
-- Comparability: defenders and goalkeepers often require different metrics — direct comparisons with attackers can be misleading; the engine attempts to detect and surface this.
-- Entity resolution: player name resolution is fuzzy but still relies on reasonable spelling and canonical names in `all_leagues_clean.csv`.
-- League-fit: current league-fit logic is a simple heuristic placeholder (planned as Milestone 3).
+- Limitations:
+  - Uses only FBref event data (no tracking data)
+  - Defender/goalkeeper comparisons are less reliable
+  - Entity resolution depends on canonical player names and reasonable spelling
+  - League-fit is currently a heuristic placeholder
 
-**Future Work**
+- Next steps / future work:
+  - Learned league-fit models and transfer outcome labels
+  - Multi-season/time-aware embeddings
+  - Tracking data integration for richer defensive metrics
+  - RAG-based richer scouting prose and defender-specific features
 
-- Trained league-fit models using transfer/league outcome data.
-- Multi-season and time-aware embeddings.
-- Integrate tracking data for richer defensive and off-ball metrics.
-- Use retrieval-augmented generation (RAG) to create richer style descriptions and scouting prose.
-- Improve defender-specific features and per-role evaluation metrics.
+---
 
-**Citation & Acknowledgements**
+## Troubleshooting
 
-- Data source: FBref (https://fbref.com) — please observe FBref terms of use when scraping or publishing data.
-- This project is a portfolio tool — credit for any research foundations should be added as appropriate.
+- "Streamlit fails to start" — make sure virtualenv is active and `streamlit` is installed.
+- "Model file not found" — run `python -m src.modeling.train_player_embedding` to build `player_embedding_model.pkl`.
+- "Selenium errors" — install ChromeDriver and ensure it's on your PATH.
+- "Image rendering missing" — confirm `images/` contains `ui1.png`, `clusters.png`, `heatmap.png`.
 
-**License**
+If you hit errors, paste the stack trace into an issue and include your environment (Python version, OS).
 
-This repository ships with a permissive MIT-style license by default.
+---
+
+## Contributing
+
+- Contributions welcome: open an issue or submit a PR.
+- Suggested workflow:
+  1. Fork the repo
+  2. Create a feature branch
+  3. Add tests where appropriate
+  4. Submit a PR with a clear description
+
+Please follow existing code style and keep comments focused and minimal.
+
+---
+
+## Authors
+
+- Ansh Marwa — [GitHub](https://github.com/anshm02) • [LinkedIn](https://www.linkedin.com/in/anshmarwa/)
+- Komdean Masoumi — [GitHub](https://github.com/komdean) • [LinkedIn](https://www.linkedin.com/in/komdean/)
+- Ethan Hsu — [GitHub](https://github.com/ethanhsu1) • [LinkedIn](https://www.linkedin.com/in/hsuethan/)
+- Shreyas Shukla — [GitHub](https://github.com/shuklashreyas) • [LinkedIn](https://www.linkedin.com/feed/)
+- Yossouf Bendary — [GitHub](https://github.com/youbendary) • [LinkedIn](https://www.linkedin.com/in/youssof-bendary/)
+
+---
+
+## Our Paper (ACL)
+
+We published an accompanying paper for ACL. See the PDF in the repository:
+
+- `ACL_SoccerScouting.pdf`
+
+## License & Acknowledgements
+
+- MIT License (see `LICENSE`)
+- Data: FBref — follow FBref terms of use when scraping or publishing data
+- Thanks to contributors and open-source libraries used (pandas, scikit-learn, Streamlit, mplsoccer)
+
 
 
 
