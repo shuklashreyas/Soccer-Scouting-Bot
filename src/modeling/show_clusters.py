@@ -1,4 +1,4 @@
-# src/modeling/show_clusters.py
+"""Print cluster summaries and representative players for debugging/inspection."""
 
 import pandas as pd
 from src.modeling.similarity import PlayerEmbeddingModel, FRIENDLY_NAMES

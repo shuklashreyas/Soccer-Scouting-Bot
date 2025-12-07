@@ -1,4 +1,38 @@
-# src/modeling/similarity.py
+CANDIDATE_FEATURE_GROUPS = {
+    "shooting": ["Shooting_Score"],
+    "dribbling": ["Dribbling_Score"],
+    "passing": ["Passing_Score"],
+    "creation": ["Creation_Score"],
+    "carrying": ["Carrying_Score"],
+    "defending": ["Defending_Score"],
+}
+
+# Optional: human readable names for explanation
+FRIENDLY_NAMES = {
+    "Shooting_Score": "Shooting",
+    "Dribbling_Score": "Dribbling",
+    "Passing_Score": "Passing",
+    "Creation_Score": "Chance Creation",
+    "Carrying_Score": "Ball Carrying",
+    "Defending_Score": "Defending",
+}
+
+# Human-readable cluster labels (simple mapping: cluster id -> label)
+ROLE_LABELS = {
+    0: "Attacking Fullbacks / Offensive Wide Progressors",
+    1: "Superstar Inverted Forwards / Elite Finishers & Creators",
+    2: "Defensive Stoppers / Deep Defenders",
+    3: "High-Workrate Wide Forwards / Transitional Threats",
+    4: "Target 9 / Ball-Retaining Strikers",
+    5: "Creative Dribbling Wingers / Ball-Carrying Engines",
+    6: "Deep-Lying Playmakers / Box-to-Box Controllers",
+    7: "Elite Central Finisher",
+    8: "High-Volume Shooters / Secondary Finishers",
+    9: "Defensive Anchors / Ball-Winning Midfielders",
+    10: "Hybrid 8/10s & Second Strikers",
+    11: "Advanced Playmaking Wingers / Creative Threats",
+}
+
 
 import numpy as np
 import pandas as pd
@@ -10,14 +44,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import pickle
 from pathlib import Path
 
-# -------------------------------
-#  CONFIG: FEATURE GROUPS
-# -------------------------------
-
-# These are "candidate" features. We only keep the ones present in the DF.
-# -------------------------------
-#  CONFIG: FEATURE GROUPS
-# -------------------------------
+"""Player embedding pipeline: select numeric features, scale, PCA, cluster, and explain similarities."""
 
 # Z-score features from z_scores.csv
 CANDIDATE_FEATURE_GROUPS = {

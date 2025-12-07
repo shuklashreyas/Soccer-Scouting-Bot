@@ -8,14 +8,12 @@ import io
 import matplotlib.pyplot as plt
 
 
-# ======================================
-# FIX MODULE PATHS
-# ======================================
+# Fix module import paths so `src` can be imported when running the app
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-# Your modules
+# Local module imports
 from src.nlp.intent_classifier import predict_intent
 from src.nlp.entity_extraction import extract_entities
 from src.modeling.similarity import find_similar_players, ROLE_LABELS, FRIENDLY_NAMES
@@ -34,24 +32,14 @@ from src.visualization.cluster_plots import (
 )
 
 
-# ======================================
-# LOAD DATA
-# ======================================
 @st.cache_data
 def load_data():
-    # Load z_scores for similarity calculations
-    z_scores_path = "data/processed/z_scores.csv"
-    z_scores_df = pd.read_csv(z_scores_path)
+    # Load core datasets and return commonly used lists (players, leagues, stats)
+    z_scores_df = pd.read_csv("data/processed/z_scores.csv")
+    all_leagues_df = pd.read_csv("data/processed/all_leagues_clean.csv")
+    outfield_df = pd.read_csv("data/processed/outfield_clean.csv")
 
-    # Load all_leagues_clean for basic player stats
-    all_leagues_path = "data/processed/all_leagues_clean.csv"
-    all_leagues_df = pd.read_csv(all_leagues_path)
-
-    # Load outfield_clean for detailed radar chart stats
-    outfield_path = "data/processed/outfield_clean.csv"
-    outfield_df = pd.read_csv(outfield_path)
-
-    # Merge all_leagues with z_scores on Player, Squad
+    # Merge scoring z-scores into the main leagues dataframe
     df = all_leagues_df.merge(
         z_scores_df[['Player', 'Squad', 'Shooting_Score', 'Dribbling_Score',
                      'Passing_Score', 'Creation_Score', 'Carrying_Score', 'Defending_Score']],
@@ -62,7 +50,7 @@ def load_data():
     players = df["Player"].dropna().unique().tolist()
     leagues = ["premier league", "la liga", "bundesliga", "serie a", "ligue 1"]
 
-    # These stats names are used only for entity extraction
+    # Minimal stat keywords used by the entity extractor
     stats = ["goals", "assists", "xg", "xa", "progressive passes", "ppa", "g+a"]
 
     return df, outfield_df, players, leagues, stats
@@ -74,28 +62,24 @@ df, outfield_df, players_list, league_list, stat_list = load_data()
 @st.cache_resource
 def get_embedding_model():
     try:
-        # Import lazily to avoid raising heavy import errors at module import time
+        # Lazy import to avoid heavy deps at module import time; prefer loading a persisted model
         from src.modeling.similarity import PlayerEmbeddingModel
 
-        # Prefer a persisted model for faster cold-starts
         model_path = "data/models/player_embedding_model.pkl"
         try:
             return PlayerEmbeddingModel.load(model_path)
         except Exception:
-            # If loading fails (missing file or mismatch), fall back to building
+            # Fall back to building from dataframe if persisted load fails
             try:
                 return PlayerEmbeddingModel(df)
             except Exception:
                 return None
     except Exception:
-        # If the modeling imports fail (missing packages), return None so the UI can fall back
+        # Modeling dependencies may be unavailable in some environments
         return None
 
 
-# ======================================
-# LOAD SIMILARITY MODEL (OPTIONAL)
-# Your new wrapper doesn't need scaler/knn but we keep it for compatibility
-# ======================================
+# Load optional similarity model artifacts (kept for backward compatibility)
 try:
     with open("data/models/similarity_model.pkl", "rb") as f:
         obj = pickle.load(f)

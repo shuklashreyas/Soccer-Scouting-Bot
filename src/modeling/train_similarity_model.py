@@ -1,3 +1,9 @@
+"""Train a lightweight kNN similarity model (scaler + kNN) and persist it.
+
+This script fits a scaler and a NearestNeighbors model on z-score features
+and writes `data/models/similarity_model.pkl` for legacy compatibility.
+"""
+
 import pandas as pd
 import pickle
 import os

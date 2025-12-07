@@ -1,3 +1,4 @@
+# Small helper: produce a concise, rule-based response string for a recognized intent
 def generate_response(intent, entities, result):
     if intent == "profile":
         player = entities['player'][0]

@@ -1,6 +1,8 @@
 import re
 
+
 def extract_entities(query, players_list, league_list, stat_list):
+    """Lightweight entity extractor: finds players, leagues, and stat keywords in text."""
 
     query_lower = query.lower()
 

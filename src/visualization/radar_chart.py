@@ -4,6 +4,11 @@ import matplotlib.pyplot as plt
 
 
 def plot_radar(df, cols, df2=None):
+    """Render a percentiles-style radar chart for one (or two) players.
+
+    `df` should contain a single row with columns matching `cols` and metadata
+    fields `player` and `team` used for labels.
+    """
     team = df['team'].iloc[0]
     p1 = df['player'].iloc[0]
     df = df[cols]

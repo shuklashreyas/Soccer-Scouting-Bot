@@ -3,7 +3,7 @@ from pathlib import Path
 import streamlit as st
 import json
 
-# Fix module path so `from src...` imports work when running this page directly
+# Ensure repo root is on `sys.path` so `from src...` imports work
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -16,7 +16,7 @@ st.title("Cluster Labels Admin")
 @st.cache_resource
 def load_model(path: str):
     from src.modeling.similarity import PlayerEmbeddingModel
-    # Let exceptions propagate so the calling code can show tracebacks
+    # Load a persisted PlayerEmbeddingModel; let callers handle any load errors
     return PlayerEmbeddingModel.load(path)
 
 
