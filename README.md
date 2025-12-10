@@ -10,25 +10,25 @@ role-aware comparisons, and generate short scouting reports.
 
 ## Table of Contents
 - [Soccer-Scouting-Bot](#soccer-scouting-bot)
-	- [Table of Contents](#table-of-contents)
-	- [Demo / Quick Start](#demo--quick-start)
-	- [Features](#features)
-	- [Why This Project?](#why-this-project)
-	- [Prerequisites](#prerequisites)
-	- [Installation](#installation)
-	- [Usage](#usage)
-	- [Technical Details](#technical-details)
-		- [Data \& Feature Engineering](#data--feature-engineering)
-		- [Embedding Model](#embedding-model)
-		- [Similarity \& Comparison](#similarity--comparison)
-		- [Radar Charts \& Visuals](#radar-charts--visuals)
-	- [Frontend (Screenshots)](#frontend-screenshots)
-	- [Limitations \& Next Steps](#limitations--next-steps)
-	- [Troubleshooting](#troubleshooting)
-	- [Contributing](#contributing)
-	- [Authors](#authors)
-	- [Our Paper (ACL)](#our-paper-acl)
-	- [License \& Acknowledgements](#license--acknowledgements)
+  - [Table of Contents](#table-of-contents)
+  - [Demo / Quick Start](#demo--quick-start)
+  - [Features](#features)
+  - [Why This Project?](#why-this-project)
+  - [Prerequisites](#prerequisites)
+  - [Installation](#installation)
+  - [Usage](#usage)
+  - [Technical Details](#technical-details)
+    - [Data \& Feature Engineering](#data--feature-engineering)
+    - [Embedding Model](#embedding-model)
+    - [Similarity \& Comparison](#similarity--comparison)
+    - [Radar Charts \& Visuals](#radar-charts--visuals)
+  - [Frontend (Screenshots)](#frontend-screenshots)
+  - [Limitations \& Next Steps](#limitations--next-steps)
+  - [Troubleshooting](#troubleshooting)
+  - [Contributing](#contributing)
+  - [Authors](#authors)
+  - [Our Paper (ACL)](#our-paper-acl)
+  - [License \& Acknowledgements](#license--acknowledgements)
 
 ---
 
@@ -216,7 +216,7 @@ If you hit errors, paste the stack trace into an issue and include your environm
 We published an accompanying paper for ACL. You can download or view the PDF here:
 
 - [ACL_SoccerScouting.pdf](./ACL_SoccerScouting.pdf)
-- View on Google Drive: https://drive.google.com/file/d/17MdqpLidDJT2ct3um5GRpojom0juxcyq/view?usp=sharing
+- View on Google Drive: https://drive.google.com/file/d/17NJHYKbpmeP4x1AHijvjCdWAfROOlDtv/view?usp=sharing
 
 ## License & Acknowledgements
 
